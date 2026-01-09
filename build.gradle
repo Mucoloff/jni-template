@@ -26,7 +26,7 @@ java {
 }
 
 def nativeDir = file("natives")
-def nativeBuildDir = file("natives/build")
+def nativeBuildDir = file("natives/cmake-build-debug")
 def jniHeadersDir = file("natives/src")
 
 tasks.register('cleanNative', Delete) {
