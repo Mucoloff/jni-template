@@ -63,6 +63,26 @@ Benchmarks (`src/jmh/java/dev/sweety/bench/`): `CrossingBench` (per-call overhea
 `ThroughputBench` (large payload), `BatchBench` (batch vs loop), `ArrayAccessBench`
 (copy vs critical vs segment), `AllocBench` (pooled vs fresh arena; run with `-prof gc`).
 
+## Code generation (single source of truth)
+
+The native surface is declared **once** on the `@NativeApi` interface
+`dev.sweety.jni.RawNatives`. A Java annotation processor (`:processor`, with
+annotations in `:annotations`) derives each method's JNI signature from its types
+and generates:
+
+- the per-backend holder classes `CppNatives` / `RustNatives` (the `native` decls + loader);
+- a JSON descriptor `build/generated/native-api.json`.
+
+The C++ build (`genCppRegistrations` Gradle task) and the Rust build (`build.rs`)
+turn that descriptor into their `RegisterNatives` tables — so the name + signature
++ fn-ptr triples are never hand-written and **cannot drift** between languages
+(the exact bug class that previously broke the Rust backend). The native author
+writes only the `jni_*` thunk bodies, named identically in C++ and Rust.
+
+To add a native method: add it to `RawNatives` with `@Jni(thunk="jni_…")`, then
+implement the `jni_…` body in `jni_hashengine.cpp` and `jni_hashengine.rs`. The
+holders, signatures, and both registration tables regenerate automatically.
+
 ## Adapting
 
 1. Replace the FNV core (`native/cpp/include/fnv.hpp`, `native/rust/src/fnv.rs`) and the

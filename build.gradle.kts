@@ -24,11 +24,21 @@ repositories {
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains:annotations:26.0.2")
+    implementation(project(":annotations"))
+    annotationProcessor(project(":processor"))
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(kotlin("test"))
+}
+
+// Where the annotation processor writes the native API descriptor (consumed by
+// the C++ and Rust builds to generate their RegisterNatives tables).
+val nativeDescriptor = layout.buildDirectory.file("generated/native-api.json").get().asFile
+
+tasks.named<JavaCompile>("compileJava") {
+    options.compilerArgs.add("-Anative.descriptor=${nativeDescriptor.absolutePath}")
 }
 
 application {

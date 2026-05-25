@@ -20,6 +20,7 @@ add_library(native_cpp SHARED
 
 target_include_directories(native_cpp PRIVATE
     include
+    generated            # registrations.generated.h (from native-api.json)
     ${JNI_INCLUDE_DIRS}
 )
 
