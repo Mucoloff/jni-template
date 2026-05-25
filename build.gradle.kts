@@ -8,10 +8,17 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(25))
     }
+    // Kotlin 2.2 caps its JVM target at 24, so emit 24 bytecode on both sides
+    // to keep compileJava and compileKotlin consistent.
+    sourceCompatibility = JavaVersion.VERSION_24
+    targetCompatibility = JavaVersion.VERSION_24
 }
 
 kotlin {
     jvmToolchain(25)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_24)
+    }
 }
 
 repositories {
