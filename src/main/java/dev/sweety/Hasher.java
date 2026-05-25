@@ -1,5 +1,7 @@
 package dev.sweety;
 
+import org.jetbrains.annotations.NotNull;
+
 /**
  * Stateful-handle JNI pattern: a long-lived native object referenced by an
  * opaque {@code long} handle (a raw pointer). {@link #create} allocates it,
@@ -19,7 +21,7 @@ public final class Hasher implements Digest, AutoCloseable {
     }
 
     @Override
-    public void update(byte[] data) {
+    public void update(byte @NotNull [] data) {
         update(handle, data, data.length);
     }
 

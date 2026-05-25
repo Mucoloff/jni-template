@@ -1,5 +1,4 @@
 import org.gradle.internal.os.OperatingSystem
-
 val rustTarget = file("$projectDir/target/release")
 val nativeOutputDir = rootProject.file("build/natives")
 

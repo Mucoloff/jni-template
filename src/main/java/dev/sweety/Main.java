@@ -3,9 +3,9 @@ package dev.sweety;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
-public class Main {
+class Main {
 
-    public static void main(String[] args) {
+    void main() {
         NativeLib.ensureLoaded();
         System.out.println("Backend: " + NativeLib.current());
 
@@ -38,7 +38,9 @@ public class Main {
         benchmark();
     }
 
-    /** Throughput of the zero-copy path; run with -Djni.backend=rust to compare. */
+    /**
+     * Throughput of the zero-copy path; run with -Djni.backend=rust to compare.
+     */
     private static void benchmark() {
         final int size = 64 << 20; // 64 MiB
         final int iters = 20;

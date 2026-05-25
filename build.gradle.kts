@@ -1,24 +1,19 @@
 plugins {
-    java
+    id("java")
     application
-    kotlin("jvm") version "2.2.0"
+    kotlin("jvm") version "2.3.20"
 }
 
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(25))
     }
-    // Kotlin 2.2 caps its JVM target at 24, so emit 24 bytecode on both sides
-    // to keep compileJava and compileKotlin consistent.
-    sourceCompatibility = JavaVersion.VERSION_24
-    targetCompatibility = JavaVersion.VERSION_24
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 kotlin {
     jvmToolchain(25)
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_24)
-    }
 }
 
 repositories {
@@ -28,10 +23,19 @@ repositories {
 dependencies {
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains:annotations:26.0.2")
+
+    testImplementation(platform("org.junit:junit-bom:6.0.0"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation(kotlin("test"))
 }
 
 application {
     mainClass.set("dev.sweety.Main")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 val nativeOutputDir = layout.buildDirectory.dir("natives").get().asFile
