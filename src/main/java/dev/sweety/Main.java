@@ -1,62 +1,63 @@
 package dev.sweety;
 
-import java.nio.ByteBuffer;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-class Main {
+/**
+ * Runs the unified {@link HashEngine} API across every Binding x Backend combo and
+ * checks that all paths (array, zero-copy segment, streaming, batch) agree — both
+ * within an engine and across JNI vs FFM and C++ vs Rust.
+ */
+public class Main {
 
-    void main() {
-        NativeLib.ensureLoaded();
-        System.out.println("Backend: " + NativeLib.current());
-
+    public static void main(String[] args) {
         byte[] msg = "the quick brown fox".getBytes(StandardCharsets.UTF_8);
 
-        // 1. Checksum — stateless static call, byte[] copied across the boundary.
-        long oneShot = Checksum.hash(msg);
-        System.out.printf("Checksum.hash         = 0x%016x%n", oneShot);
-
-        // 2. NativeBuffer — zero-copy hash over off-heap memory.
-        ByteBuffer buf = NativeBuffer.allocate(msg.length);
-        buf.put(msg).flip();
-        long direct = NativeBuffer.hash(buf, msg.length);
-        System.out.printf("NativeBuffer.hash     = 0x%016x%n", direct);
-        NativeBuffer.free(buf);
-
-        // 3. Hasher — stateful handle, incremental digest in two chunks.
-        long streamed;
-        try (Hasher h = new Hasher()) {
-            h.update(java.util.Arrays.copyOfRange(msg, 0, 9));   // "the quick"
-            h.update(java.util.Arrays.copyOfRange(msg, 9, msg.length));
-            streamed = h.digest();
+        Long reference = null;
+        for (Binding binding : Binding.values()) {
+            for (Backend backend : Backend.values()) {
+                try {
+                    long h = exercise(HashEngine.of(binding, backend), msg);
+                    System.out.printf("%-4s %-4s -> 0x%016x%n", binding, backend, h);
+                    if (reference == null) reference = h;
+                    else if (reference != h)
+                        throw new AssertionError(binding + "/" + backend + " disagrees");
+                } catch (UnsatisfiedLinkError | IllegalStateException e) {
+                    System.out.printf("%-4s %-4s -> skipped (%s)%n", binding, backend, e.getMessage());
+                }
+            }
         }
-        System.out.printf("Hasher (streamed)     = 0x%016x%n", streamed);
-
-        boolean consistent = oneShot == direct && direct == streamed;
-        System.out.println("all three agree       = " + consistent);
-        if (!consistent) throw new AssertionError("FNV-1a paths disagree");
-
-        benchmark();
+        System.out.println("all available combos agree = true");
     }
 
-    /**
-     * Throughput of the zero-copy path; run with -Djni.backend=rust to compare.
-     */
-    private static void benchmark() {
-        final int size = 64 << 20; // 64 MiB
-        final int iters = 20;
-        ByteBuffer buf = NativeBuffer.allocate(size);
-        // Touch every page with non-zero data so the loop does real work.
-        for (int i = 0; i < size; i += 4096) buf.put(i, (byte) i);
+    /** Exercise array / zero-copy / streaming / batch paths; assert they match; return the hash. */
+    private static long exercise(HashEngine e, byte[] msg) {
+        long viaArray = e.hash(msg);
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = arena.allocate(msg.length);
+            MemorySegment.copy(msg, 0, seg, ValueLayout.JAVA_BYTE, 0, msg.length);
 
-        for (int i = 0; i < 5; i++) NativeBuffer.hash(buf, size); // warmup
+            long viaSegment = e.hash(seg, msg.length);
 
-        long acc = 0, start = System.nanoTime();
-        for (int i = 0; i < iters; i++) acc ^= NativeBuffer.hash(buf, size);
-        long ns = System.nanoTime() - start;
+            long viaStream;
+            try (HashSession s = e.open()) {
+                s.update(seg, msg.length);
+                viaStream = s.digest();
+            }
 
-        double mbPerSec = (double) size * iters / (ns / 1e9) / (1 << 20);
-        System.out.printf("%nbenchmark: %d MiB x %d in %.1f ms -> %.0f MiB/s (sink=0x%x)%n",
-                size >> 20, iters, ns / 1e6, mbPerSec, acc);
-        NativeBuffer.free(buf);
+            long viaBatch = e.hashBatch(new MemorySegment[]{seg}, new long[]{msg.length})[0];
+
+            if (viaArray != viaSegment || viaSegment != viaStream || viaStream != viaBatch)
+                throw new AssertionError("internal path mismatch for " + e.binding() + "/" + e.backend());
+
+            // memory-bound op smoke test: transform then verify it changed the bytes
+            e.transform(seg, msg.length, (byte) 1);
+            if (seg.get(ValueLayout.JAVA_BYTE, 0) == msg[0])
+                throw new AssertionError("transform had no effect");
+
+            return viaArray;
+        }
     }
 }
