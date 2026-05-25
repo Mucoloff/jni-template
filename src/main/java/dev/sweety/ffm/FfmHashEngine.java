@@ -7,6 +7,7 @@ import dev.sweety.HashSession;
 import dev.sweety.jni.FfmBindings;
 import dev.sweety.mem.NativeArena;
 import dev.sweety.pool.ObjectPool;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -23,33 +24,33 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 public final class FfmHashEngine implements HashEngine {
 
     private final Backend backend;
-    private final FfmBindings b;
+    private final FfmBindings bindings;
     private final ObjectPool<FfmSession> sessions;
 
     public FfmHashEngine(Backend backend) {
         this.backend = backend;
-        this.b = new FfmBindings(backend);
+        this.bindings = new FfmBindings(backend);
         this.sessions = ObjectPool.threadLocal(
-                () -> new FfmSession(b.create()),
-                s -> b.reset(s.state),
-                s -> b.free(s.state),
+                () -> new FfmSession(bindings.create()),
+                FfmSession::reset,
+                FfmSession::free,
                 16);
     }
 
     @Override
-    public long hash(byte[] data) {
+    public long hash(byte @NotNull [] data) {
         try (Arena a = Arena.ofConfined()) {
-            return b.hash(NativeArena.copyOf(a, data), data.length);
+            return bindings.hash(NativeArena.copyOf(a, data), data.length);
         }
     }
 
     @Override
-    public long hash(MemorySegment data, long len) {
-        return b.hash(data, len);
+    public long hash(@NotNull MemorySegment data, long len) {
+        return bindings.hash(data, len);
     }
 
     @Override
-    public long[] hashBatch(MemorySegment[] data, long[] lens) {
+    public long @NotNull [] hashBatch(MemorySegment[] data, long @NotNull [] lens) {
         int n = data.length;
         try (Arena a = Arena.ofConfined()) {
             MemorySegment ptrs = a.allocate(ADDRESS.byteSize() * n);
@@ -59,7 +60,7 @@ public final class FfmHashEngine implements HashEngine {
                 ptrs.setAtIndex(ADDRESS, i, data[i]);
                 lensSeg.setAtIndex(JAVA_LONG, i, lens[i]);
             }
-            b.hashBatchRaw(ptrs, lensSeg, out, n);
+            bindings.hashBatchRaw(ptrs, lensSeg, out, n);
             long[] result = new long[n];
             for (int i = 0; i < n; i++) result[i] = out.getAtIndex(JAVA_LONG, i);
             return result;
@@ -67,22 +68,22 @@ public final class FfmHashEngine implements HashEngine {
     }
 
     @Override
-    public void transform(MemorySegment data, long len, byte add) {
-        b.transform(data, len, add);
+    public void transform(@NotNull MemorySegment data, long len, byte add) {
+        bindings.transform(data, len, add);
     }
 
     @Override
-    public HashSession open() {
+    public @NotNull HashSession open() {
         return sessions.acquire();
     }
 
     @Override
-    public Backend backend() {
+    public @NotNull Backend backend() {
         return backend;
     }
 
     @Override
-    public Binding binding() {
+    public @NotNull Binding binding() {
         return Binding.FFM;
     }
 
@@ -94,18 +95,21 @@ public final class FfmHashEngine implements HashEngine {
         }
 
         @Override
-        public void update(MemorySegment data, long len) {
-            b.update(state, data, len);
+        public void update(@NotNull MemorySegment data, long len) {
+            bindings.update(state, data, len);
         }
 
         @Override
         public long digest() {
-            return b.digest(state);
+            return bindings.digest(state);
         }
 
         @Override
         public void reset() {
-            b.reset(state);
+            bindings.reset(state);
+        }
+        public void free() {
+            bindings.free(state);
         }
 
         @Override

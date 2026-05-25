@@ -1,5 +1,7 @@
 package dev.sweety;
 
+import dev.sweety.mem.NativeArena;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -38,8 +40,7 @@ public class Main {
     private static long exercise(HashEngine e, byte[] msg) {
         long viaArray = e.hash(msg);
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment seg = arena.allocate(msg.length);
-            MemorySegment.copy(msg, 0, seg, ValueLayout.JAVA_BYTE, 0, msg.length);
+            MemorySegment seg = NativeArena.copyOf(arena, msg);
 
             long viaSegment = e.hash(seg, msg.length);
 
