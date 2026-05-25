@@ -27,9 +27,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * are passed straight through — zero copy, no per-call JNI marshalling.
  */
 public final class FfmHashEngine implements HashEngine {
-
     private static final Linker LINKER = Linker.nativeLinker();
-
     private final Backend backend;
     private final MethodHandle hash;       // long nat_fnv_hash(addr, len)
     private final MethodHandle transform;  // void nat_transform(addr, len, byte)

@@ -23,8 +23,8 @@ public final class JniHashEngine implements HashEngine {
     public JniHashEngine(Backend backend) {
         this.backend = backend;
         this.n = switch (backend) {
-            case CPP -> CppNatives.INSTANCE;
-            case RUST -> RustNatives.INSTANCE;
+            case CPP -> CppNatives.get();
+            case RUST -> RustNatives.get();
         };
         this.sessions = ObjectPool.threadLocal(
                 () -> new JniSession(n.create()),
