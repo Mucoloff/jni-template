@@ -3,8 +3,9 @@ package dev.sweety;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
-class Main {
-    void main() {
+public class Main {
+
+    public static void main(String[] args) {
         NativeLib.ensureLoaded();
         System.out.println("Backend: " + NativeLib.current());
 

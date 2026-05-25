@@ -1,7 +1,7 @@
 plugins {
     java
     application
-    kotlin("jvm") version "2.1.10"
+    kotlin("jvm") version "2.2.0"
 }
 
 java {
@@ -14,6 +14,9 @@ java {
 
 kotlin {
     jvmToolchain(25)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_23)
+    }
 }
 
 repositories {
@@ -34,7 +37,10 @@ val nativeOutputDir = layout.buildDirectory.dir("natives").get().asFile
 tasks.named<JavaExec>("run") {
     dependsOn("buildNatives")
     doFirst {
-        jvmArgs("-Djava.library.path=${nativeOutputDir.absolutePath}")
+        jvmArgs(
+            "-Djava.library.path=${nativeOutputDir.absolutePath}",
+            "--enable-native-access=ALL-UNNAMED"
+        )
     }
 }
 
@@ -45,6 +51,7 @@ tasks.register("buildNatives") {
 }
 
 tasks.register<Delete>("cleanNatives") {
+    description = "Clean the native output directory"
     delete(nativeOutputDir)
 }
 

@@ -10,6 +10,7 @@ val cargoPath: String = listOf(
 val cargoAvailable = File(cargoPath).exists()
 
 tasks.register<Exec>("buildRust") {
+    description = "Build the Rust native library"
     workingDir = projectDir
     commandLine(cargoPath, "build", "--release")
     onlyIf {
@@ -37,6 +38,7 @@ tasks.register<Exec>("buildRust") {
 }
 
 tasks.register<Exec>("cleanRust") {
+    description = "Clean the Rust native library"
     workingDir = projectDir
     commandLine(cargoPath, "clean")
     onlyIf {
