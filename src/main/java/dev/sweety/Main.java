@@ -17,7 +17,7 @@ public class Main {
 
         Long reference = null;
         for (Binding binding : Binding.values()) {
-            for (Backend backend : Backend.values()) {
+            for (Backend backend : Backend.getEntries()) {
                 try {
                     long h = exercise(HashEngine.of(binding, backend), msg);
                     System.out.printf("%-4s %-4s -> 0x%016x%n", binding, backend, h);
@@ -41,7 +41,7 @@ public class Main {
 
             long viaSegment = e.hash(seg, msg.length);
 
-            long viaStream;
+            final long viaStream;
             try (HashSession s = e.open()) {
                 s.update(seg, msg.length);
                 viaStream = s.digest();

@@ -12,7 +12,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Every available Binding x Backend must agree on FNV-1a, across all API paths. */
+/**
+ * Every available Binding x Backend must agree on FNV-1a, across all API paths.
+ */
 class ParityTest {
 
     private static final byte[] MSG = "the quick brown fox".getBytes(StandardCharsets.UTF_8);
@@ -22,21 +24,23 @@ class ParityTest {
     void allBindingsAndBackendsAgree() {
         List<String> ran = new ArrayList<>();
         for (Binding binding : Binding.values()) {
-            for (Backend backend : Backend.values()) {
-                HashEngine e;
+            for (Backend backend : Backend.getEntries()) {
+
                 try {
-                    e = HashEngine.of(binding, backend);
-                } catch (UnsatisfiedLinkError | IllegalStateException notBuilt) {
+                    HashEngine e = HashEngine.of(binding, backend);
+                    assertAllPathsEqual(e);
+                } catch (UnsatisfiedLinkError | IllegalStateException e) {
+                    System.err.println("skipping " + binding + "/" + backend + ": " + e.getMessage());
                     continue; // backend library absent (e.g. Rust without cargo)
                 }
-                assertAllPathsEqual(e);
                 ran.add(binding + "/" + backend);
             }
         }
+        System.out.println("ran combos: " + ran);
         assertTrue(ran.contains("JNI/CPP"), "JNI/CPP must always be available");
     }
 
-    private void assertAllPathsEqual(HashEngine e) {
+    private void assertAllPathsEqual(HashEngine e) throws UnsatisfiedLinkError, IllegalStateException {
         String tag = e.binding() + "/" + e.backend();
         assertEquals(EXPECTED, e.hash(MSG), tag + " array");
         try (Arena arena = Arena.ofConfined()) {
