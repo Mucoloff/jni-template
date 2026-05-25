@@ -1,21 +1,20 @@
 val cppBuildDir = file("$projectDir/cmake-build")
 val nativeOutputDir = rootProject.file("build/natives")
-val cmakePath = listOf(
-    "/Users/francesco/.cmake-deps/cmake/mac/aarch64/bin/cmake",
-    "/usr/local/bin/cmake",
-    "/opt/homebrew/bin/cmake"
-).firstOrNull { File(it).exists() } ?: "cmake"
+
+// Override with -Pcmake=/path/to/cmake or the CMAKE env var; otherwise use PATH.
+val cmakePath: String =
+    (project.findProperty("cmake") as String?)
+        ?: System.getenv("CMAKE")
+        ?: "cmake"
 
 tasks.register<Exec>("configureCpp") {
     description = "Configure the C++ native library using CMake"
     val javaHome = System.getProperty("java.home")
+    // find_package(JNI) locates the platform jni_md.h; only JAVA_HOME is needed
+    // as a hint, keeping this portable across Linux / macOS / Windows.
     commandLine(
         cmakePath,
         "-DJAVA_HOME=$javaHome",
-        "-DJAVA_INCLUDE_PATH=$javaHome/include",
-        "-DJAVA_INCLUDE_PATH2=$javaHome/include/darwin",
-        "-DJAVA_AWT_LIBRARY=$javaHome/lib/libawt.dylib",
-        "-DJAVA_JVM_LIBRARY=$javaHome/lib/libjvm.dylib",
         "-B", cppBuildDir.absolutePath,
         "-S", projectDir.absolutePath
     )

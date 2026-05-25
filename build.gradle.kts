@@ -8,15 +8,10 @@ java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(25))
     }
-    targetCompatibility = JavaVersion.VERSION_23
-    sourceCompatibility = JavaVersion.VERSION_23
 }
 
 kotlin {
     jvmToolchain(25)
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_23)
-    }
 }
 
 repositories {

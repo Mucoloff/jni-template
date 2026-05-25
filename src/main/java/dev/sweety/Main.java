@@ -1,7 +1,7 @@
 package dev.sweety;
 
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 
 public class Main {
 
@@ -9,22 +9,52 @@ public class Main {
         NativeLib.ensureLoaded();
         System.out.println("Backend: " + NativeLib.current());
 
-        // Scalar — static JNI calls
-        System.out.println("sum(5, 10)      = " + Scalar.sum(5, 10));
-        System.out.println("subtract(10, 3) = " + Scalar.subtract(10, 3));
+        byte[] msg = "the quick brown fox".getBytes(StandardCharsets.UTF_8);
 
-        // Buffer — native malloc / direct ByteBuffer
-        ByteBuffer buf = Buffer.allocate(4);
-        buf.order(ByteOrder.nativeOrder()).putInt(0, 0x000000FF);
-        System.out.println("before process: 0x" + Integer.toHexString(buf.getInt(0)));
-        Buffer.process(buf, 4);
-        System.out.println("after  process: 0x" + Integer.toHexString(buf.getInt(0)));
-        Buffer.free(buf);
+        // 1. Checksum — stateless static call, byte[] copied across the boundary.
+        long oneShot = Checksum.hash(msg);
+        System.out.printf("Checksum.hash         = 0x%016x%n", oneShot);
 
-        // Engine — stateful handle, implements Calculator interface (Kotlin)
-        try (Engine e = new Engine()) {
-            System.out.println("engine.sum(2,3)      = " + e.sum(2, 3));
-            System.out.println("engine.subtract(9,4) = " + e.subtract(9, 4));
+        // 2. NativeBuffer — zero-copy hash over off-heap memory.
+        ByteBuffer buf = NativeBuffer.allocate(msg.length);
+        buf.put(msg).flip();
+        long direct = NativeBuffer.hash(buf, msg.length);
+        System.out.printf("NativeBuffer.hash     = 0x%016x%n", direct);
+        NativeBuffer.free(buf);
+
+        // 3. Hasher — stateful handle, incremental digest in two chunks.
+        long streamed;
+        try (Hasher h = new Hasher()) {
+            h.update(java.util.Arrays.copyOfRange(msg, 0, 9));   // "the quick"
+            h.update(java.util.Arrays.copyOfRange(msg, 9, msg.length));
+            streamed = h.digest();
         }
+        System.out.printf("Hasher (streamed)     = 0x%016x%n", streamed);
+
+        boolean consistent = oneShot == direct && direct == streamed;
+        System.out.println("all three agree       = " + consistent);
+        if (!consistent) throw new AssertionError("FNV-1a paths disagree");
+
+        benchmark();
+    }
+
+    /** Throughput of the zero-copy path; run with -Djni.backend=rust to compare. */
+    private static void benchmark() {
+        final int size = 64 << 20; // 64 MiB
+        final int iters = 20;
+        ByteBuffer buf = NativeBuffer.allocate(size);
+        // Touch every page with non-zero data so the loop does real work.
+        for (int i = 0; i < size; i += 4096) buf.put(i, (byte) i);
+
+        for (int i = 0; i < 5; i++) NativeBuffer.hash(buf, size); // warmup
+
+        long acc = 0, start = System.nanoTime();
+        for (int i = 0; i < iters; i++) acc ^= NativeBuffer.hash(buf, size);
+        long ns = System.nanoTime() - start;
+
+        double mbPerSec = (double) size * iters / (ns / 1e9) / (1 << 20);
+        System.out.printf("%nbenchmark: %d MiB x %d in %.1f ms -> %.0f MiB/s (sink=0x%x)%n",
+                size >> 20, iters, ns / 1e6, mbPerSec, acc);
+        NativeBuffer.free(buf);
     }
 }

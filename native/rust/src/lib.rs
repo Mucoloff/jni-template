@@ -1,4 +1,4 @@
-pub mod engine;
-pub mod scalar;
+pub mod fnv;
+pub mod checksum;
 pub mod buffer;
-pub mod engine_jni;
+pub mod hasher_jni;
