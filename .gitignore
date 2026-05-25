@@ -5,6 +5,12 @@ build/
 !**/src/test/**/build/
 .kotlin
 
+### Native builds ###
+native/cpp/cmake-build*/
+native/cpp/include/generated/
+native/rust/target/
+build/natives/
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml
@@ -18,7 +24,6 @@ out/
 !**/src/test/**/out/
 
 .idea
-/natives/cmake-build-debug
 
 ### Eclipse ###
 .apt_generated
