@@ -4,4 +4,5 @@ plugins {
 
 rootProject.name = "jni-template"
 
+include("annotations", "processor")
 include("native:cpp", "native:rust")

@@ -1,12 +1,10 @@
-// JNI bridge for dev.sweety.jni.JniHashEngine.
+// JNI bridge for dev.sweety.jni.CppNatives.
 //
-// Two JNI performance techniques are demonstrated here:
-//   1. RegisterNatives in JNI_OnLoad — the JVM binds Java native methods to these
-//      functions by an explicit table instead of resolving them by mangled name on
-//      first call. Function names below are therefore arbitrary.
-//   2. Address-based zero-copy paths — MemorySegment/direct-buffer addresses are
-//      passed as jlong and read in place, so no array copy crosses the boundary.
-//      The byte[] paths (copy vs critical) exist to contrast against that.
+// This file defines only the native function BODIES (the jni_* thunks). The
+// RegisterNatives table (name + JNI signature + fn-ptr) is generated from
+// native-api.json into registrations.generated.h, so it can never drift from the
+// Java declarations. Zero-copy paths take a native address as jlong; the byte[]
+// paths (copy vs critical) contrast against that.
 #include <jni.h>
 #include <cstdint>
 #include "fnv.hpp"
@@ -18,7 +16,7 @@ namespace {
 
     // --- byte[] paths: copy vs critical ------------------------------------------
 
-    jlong hashArray(JNIEnv *env, jclass, jbyteArray arr) {
+    jlong jni_hash_array(JNIEnv *env, jclass, jbyteArray arr) {
         jsize len = env->GetArrayLength(arr);
         jbyte *b = env->GetByteArrayElements(arr, nullptr); // may copy
         if (!b) return 0;
@@ -27,7 +25,7 @@ namespace {
         return h;
     }
 
-    jlong hashArrayCritical(JNIEnv *env, jclass, jbyteArray arr) {
+    jlong jni_hash_array_crit(JNIEnv *env, jclass, jbyteArray arr) {
         jsize len = env->GetArrayLength(arr);
         // GetPrimitiveArrayCritical avoids the copy but may pause the GC for its
         // duration — keep the critical region short and allocation-free.
@@ -40,17 +38,17 @@ namespace {
 
     // --- address paths: zero-copy ------------------------------------------------
 
-    jlong hashAddr(JNIEnv *, jclass, jlong addr, jlong len) {
+    jlong jni_hash(JNIEnv *, jclass, jlong addr, jlong len) {
         return static_cast<jlong>(Fnv::hash(as_ptr(addr), static_cast<size_t>(len)));
     }
 
-    void transformAddr(JNIEnv *, jclass, jlong addr, jlong len, jbyte add) {
+    void jni_transform(JNIEnv *, jclass, jlong addr, jlong len, jbyte add) {
         auto *p = reinterpret_cast<uint8_t *>(addr);
         uint8_t a = static_cast<uint8_t>(add);
         for (jlong i = 0; i < len; ++i) p[i] = static_cast<uint8_t>(p[i] + a);
     }
 
-    jlongArray hashBatch(JNIEnv *env, jclass, jlongArray addrs, jlongArray lens) {
+    jlongArray jni_hash_batch(JNIEnv *env, jclass, jlongArray addrs, jlongArray lens) {
         jsize n = env->GetArrayLength(addrs);
         jlong *a = env->GetLongArrayElements(addrs, nullptr);
         jlong *l = env->GetLongArrayElements(lens, nullptr);
@@ -68,42 +66,30 @@ namespace {
 
     // --- streaming handle --------------------------------------------------------
 
-    jlong sCreate(JNIEnv *, jclass) { return reinterpret_cast<jlong>(new Fnv()); }
-    void sFree(JNIEnv *, jclass, jlong h) { delete reinterpret_cast<Fnv *>(h); }
+    jlong jni_create(JNIEnv *, jclass) { return reinterpret_cast<jlong>(new Fnv()); }
+    void jni_free(JNIEnv *, jclass, jlong h) { delete reinterpret_cast<Fnv *>(h); }
 
-    void sUpdate(JNIEnv *, jclass, jlong h, jlong addr, jlong len) {
+    void jni_update(JNIEnv *, jclass, jlong h, jlong addr, jlong len) {
         reinterpret_cast<Fnv *>(h)->update(as_ptr(addr), static_cast<size_t>(len));
     }
 
-    jlong sDigest(JNIEnv *, jclass, jlong h) {
+    jlong jni_digest(JNIEnv *, jclass, jlong h) {
         return static_cast<jlong>(reinterpret_cast<Fnv *>(h)->digest());
     }
 
-    void sReset(JNIEnv *, jclass, jlong h) { reinterpret_cast<Fnv *>(h)->reset(); }
+    void jni_reset(JNIEnv *, jclass, jlong h) { reinterpret_cast<Fnv *>(h)->reset(); }
 
-    const JNINativeMethod METHODS[] = {
-        {const_cast<char *>("hashArray"), const_cast<char *>("([B)J"), reinterpret_cast<void *>(hashArray)},
-        {
-            const_cast<char *>("hashArrayCritical"), const_cast<char *>("([B)J"),
-            reinterpret_cast<void *>(hashArrayCritical)
-        },
-        {const_cast<char *>("hash"), const_cast<char *>("(JJ)J"), reinterpret_cast<void *>(hashAddr)},
-        {const_cast<char *>("transform"), const_cast<char *>("(JJB)V"), reinterpret_cast<void *>(transformAddr)},
-        {const_cast<char *>("hash"), const_cast<char *>("([J[J)[J"), reinterpret_cast<void *>(hashBatch)},
-        {const_cast<char *>("create"), const_cast<char *>("()J"), reinterpret_cast<void *>(sCreate)},
-        {const_cast<char *>("free"), const_cast<char *>("(J)V"), reinterpret_cast<void *>(sFree)},
-        {const_cast<char *>("update"), const_cast<char *>("(JJJ)V"), reinterpret_cast<void *>(sUpdate)},
-        {const_cast<char *>("digest"), const_cast<char *>("(J)J"), reinterpret_cast<void *>(sDigest)},
-        {const_cast<char *>("reset"), const_cast<char *>("(J)V"), reinterpret_cast<void *>(sReset)},
-    };
+    // kHolderClass + kRegistrations[], generated from native-api.json.
+#include "registrations.generated.h"
 } // namespace
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
     JNIEnv *env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_24) != JNI_OK) return -1;
-    jclass cls = env->FindClass("dev/sweety/jni/CppNatives");
+    jclass cls = env->FindClass(kHolderClass);
     if (!cls) return -1;
-    if (env->RegisterNatives(cls, METHODS, sizeof(METHODS) / sizeof(METHODS[0])) < 0)
+    if (env->RegisterNatives(cls, kRegistrations,
+                             sizeof(kRegistrations) / sizeof(kRegistrations[0])) < 0)
         return -1;
     return JNI_VERSION_24;
 }

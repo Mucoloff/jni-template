@@ -8,10 +8,16 @@ val cargoPath: String = listOf(
 ).firstOrNull { File(it).exists() } ?: "cargo"
 val cargoAvailable = File(cargoPath).exists()
 
+val descriptor = rootProject.layout.buildDirectory.file("generated/native-api.json")
+
 tasks.register<Exec>("buildRust") {
     description = "Build the Rust native library"
+    dependsOn(":compileJava")            // produces the native-api.json descriptor
     workingDir = projectDir
     commandLine(cargoPath, "build", "--release")
+    // build.rs turns the descriptor into the RegisterNatives array.
+    environment("NATIVE_DESCRIPTOR", descriptor.get().asFile.absolutePath)
+    inputs.file(descriptor)
     onlyIf {
         if (!cargoAvailable) {
             logger.warn("WARNING: cargo not found — skipping Rust build. Install Rust via https://rustup.rs/")

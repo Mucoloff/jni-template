@@ -49,3 +49,8 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Generated native binding code ###
+native/cpp/generated/
+native/cpp/cmake-build/
+native/rust/target/
