@@ -16,7 +16,7 @@ public class Main {
         byte[] msg = "the quick brown fox".getBytes(StandardCharsets.UTF_8);
 
         Long reference = null;
-        for (Binding binding : Binding.values()) {
+        for (Binding binding : Binding.getEntries()) {
             for (Backend backend : Backend.getEntries()) {
                 try {
                     long h = exercise(HashEngine.of(binding, backend), msg);
@@ -32,7 +32,9 @@ public class Main {
         System.out.println("all available combos agree = true");
     }
 
-    /** Exercise array / zero-copy / streaming / batch paths; assert they match; return the hash. */
+    /**
+     * Exercise array / zero-copy / streaming / batch paths; assert they match; return the hash.
+     */
     private static long exercise(HashEngine e, byte[] msg) {
         long viaArray = e.hash(msg);
         try (Arena arena = Arena.ofConfined()) {

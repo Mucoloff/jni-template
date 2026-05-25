@@ -2,34 +2,47 @@ package dev.sweety.jni;
 
 import dev.sweety.Backend;
 import dev.sweety.NativeLib;
+import org.jetbrains.annotations.NotNull;
 
-/** JNI holder for the Rust backend. {@code libnative_rust}'s JNI_OnLoad registers these. */
+/**
+ * JNI holder for the Rust backend. {@code libnative_rust}'s JNI_OnLoad registers these.
+ */
 final class RustNatives implements RawNatives {
-    static final RustNatives INSTANCE = new RustNatives();
 
-    private RustNatives() {
+    static {
         NativeLib.loadForJni(Backend.RUST);
     }
+    static final RustNatives INSTANCE = new RustNatives();
+    private RustNatives() {
+    }
 
-    static native long nHashArray(byte[] data);
-    static native long nHashArrayCritical(byte[] data);
-    static native long nHashAddr(long addr, long len);
-    static native void nTransform(long addr, long len, byte add);
-    static native long[] nHashBatch(long[] addrs, long[] lens);
-    static native long nsCreate();
-    static native void nsFree(long handle);
-    static native void nsUpdate(long handle, long addr, long len);
-    static native long nsDigest(long handle);
-    static native void nsReset(long handle);
+    @Override
+    public native long hashArray(byte @NotNull [] data);
 
-    @Override public long hashArray(byte[] d) { return nHashArray(d); }
-    @Override public long hashArrayCritical(byte[] d) { return nHashArrayCritical(d); }
-    @Override public long hashAddr(long a, long l) { return nHashAddr(a, l); }
-    @Override public void transformAddr(long a, long l, byte add) { nTransform(a, l, add); }
-    @Override public long[] hashBatch(long[] a, long[] l) { return nHashBatch(a, l); }
-    @Override public long sCreate() { return nsCreate(); }
-    @Override public void sFree(long h) { nsFree(h); }
-    @Override public void sUpdate(long h, long a, long l) { nsUpdate(h, a, l); }
-    @Override public long sDigest(long h) { return nsDigest(h); }
-    @Override public void sReset(long h) { nsReset(h); }
+    @Override
+    public native long hashArrayCritical(byte @NotNull [] data);
+
+    @Override
+    public native long hash(long addr, long len);
+
+    @Override
+    public native long @NotNull [] hash(long @NotNull [] addrs, long @NotNull [] lens);
+
+    @Override
+    public native void transform(long addr, long len, byte add);
+
+    @Override
+    public native long create();
+
+    @Override
+    public native void free(long handle);
+
+    @Override
+    public native void update(long handle, long addr, long len);
+
+    @Override
+    public native long digest(long handle);
+
+    @Override
+    public native void reset(long handle);
 }

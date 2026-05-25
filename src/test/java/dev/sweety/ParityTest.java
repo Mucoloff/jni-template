@@ -23,7 +23,7 @@ class ParityTest {
     @Test
     void allBindingsAndBackendsAgree() {
         List<String> ran = new ArrayList<>();
-        for (Binding binding : Binding.values()) {
+        for (Binding binding : Binding.getEntries()) {
             for (Backend backend : Backend.getEntries()) {
 
                 try {

@@ -19,7 +19,6 @@ import java.lang.foreign.MemorySegment;
  * <p>Mirrors {@code dev.sweety.data.buffer.SegmentBufferAllocator.POOLED}.
  */
 public final class SegmentPool {
-
     private final long capacity;
     private final ObjectPool<Lease> pool;
 
@@ -32,7 +31,9 @@ public final class SegmentPool {
                 maxPerThread);
     }
 
-    /** Borrow a segment of at least {@code capacity} bytes; close the lease to return it. */
+    /**
+     * Borrow a segment of at least {@code capacity} bytes; close the lease to return it.
+     */
     @Acquire
     public Lease acquire() {
         return pool.acquire();

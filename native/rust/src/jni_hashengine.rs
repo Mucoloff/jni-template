@@ -3,7 +3,7 @@
 //! a raw address as jlong; the byte[] paths (copy vs critical) contrast against it.
 
 use jni::objects::{JByteArray, JClass, JLongArray, ReleaseMode};
-use jni::sys::{jbyte, jint, jlong, JNI_VERSION_1_8};
+use jni::sys::{jbyte, jint, jlong, JNI_VERSION_24};
 use jni::{JNIEnv, JavaVM, NativeMethod};
 use std::ffi::c_void;
 
@@ -48,7 +48,13 @@ unsafe extern "system" fn hash_addr(_e: JNIEnv, _c: JClass, addr: jlong, len: jl
     Fnv::hash(slice_at(addr, len)) as jlong
 }
 
-unsafe extern "system" fn transform_addr(_e: JNIEnv, _c: JClass, addr: jlong, len: jlong, add: jbyte) {
+unsafe extern "system" fn transform_addr(
+    _e: JNIEnv,
+    _c: JClass,
+    addr: jlong,
+    len: jlong,
+    add: jbyte,
+) {
     if addr == 0 || len <= 0 {
         return;
     }
@@ -111,19 +117,59 @@ pub extern "system" fn JNI_OnLoad(vm: JavaVM, _reserved: *mut c_void) -> jint {
         Err(_) => return -1,
     };
     let methods = [
-        NativeMethod { name: "nHashArray".into(),         sig: "([B)J".into(),    fn_ptr: hash_array as *mut c_void },
-        NativeMethod { name: "nHashArrayCritical".into(), sig: "([B)J".into(),    fn_ptr: hash_array_critical as *mut c_void },
-        NativeMethod { name: "nHashAddr".into(),          sig: "(JJ)J".into(),    fn_ptr: hash_addr as *mut c_void },
-        NativeMethod { name: "nTransform".into(),         sig: "(JJB)V".into(),   fn_ptr: transform_addr as *mut c_void },
-        NativeMethod { name: "nHashBatch".into(),         sig: "([J[J)[J".into(), fn_ptr: hash_batch as *mut c_void },
-        NativeMethod { name: "nsCreate".into(),           sig: "()J".into(),      fn_ptr: s_create as *mut c_void },
-        NativeMethod { name: "nsFree".into(),             sig: "(J)V".into(),     fn_ptr: s_free as *mut c_void },
-        NativeMethod { name: "nsUpdate".into(),           sig: "(JJJ)V".into(),   fn_ptr: s_update as *mut c_void },
-        NativeMethod { name: "nsDigest".into(),           sig: "(J)J".into(),     fn_ptr: s_digest as *mut c_void },
-        NativeMethod { name: "nsReset".into(),            sig: "(J)V".into(),     fn_ptr: s_reset as *mut c_void },
+        NativeMethod {
+            name: "hashArray".into(),
+            sig: "([B)J".into(),
+            fn_ptr: hash_array as *mut c_void,
+        },
+        NativeMethod {
+            name: "hashArrayCritical".into(),
+            sig: "([B)J".into(),
+            fn_ptr: hash_array_critical as *mut c_void,
+        },
+        NativeMethod {
+            name: "hash".into(),
+            sig: "(JJ)J".into(),
+            fn_ptr: hash_addr as *mut c_void,
+        },
+        NativeMethod {
+            name: "transform".into(),
+            sig: "(JJB)V".into(),
+            fn_ptr: transform_addr as *mut c_void,
+        },
+        NativeMethod {
+            name: "hash".into(),
+            sig: "([J[J)[J".into(),
+            fn_ptr: hash_batch as *mut c_void,
+        },
+        NativeMethod {
+            name: "create".into(),
+            sig: "()J".into(),
+            fn_ptr: s_create as *mut c_void,
+        },
+        NativeMethod {
+            name: "free".into(),
+            sig: "(J)V".into(),
+            fn_ptr: s_free as *mut c_void,
+        },
+        NativeMethod {
+            name: "update".into(),
+            sig: "(JJJ)V".into(),
+            fn_ptr: s_update as *mut c_void,
+        },
+        NativeMethod {
+            name: "digest".into(),
+            sig: "(J)J".into(),
+            fn_ptr: s_digest as *mut c_void,
+        },
+        NativeMethod {
+            name: "reset".into(),
+            sig: "(J)V".into(),
+            fn_ptr: s_reset as *mut c_void,
+        },
     ];
     if env.register_native_methods(&cls, &methods).is_err() {
         return -1;
     }
-    JNI_VERSION_1_8 as jint
+    JNI_VERSION_24 as jint
 }

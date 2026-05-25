@@ -1,6 +1,6 @@
 package dev.sweety
 
-enum class Backend(val libName: String) {
+enum class Backend(private val libName: String) {
     CPP("native_cpp"),
     RUST("native_rust");
 
@@ -8,4 +8,6 @@ enum class Backend(val libName: String) {
         fun fromProperty(): Backend =
             if (System.getProperty("jni.backend", "cpp").lowercase() == "rust") RUST else CPP
     }
+
+    fun libName() = libName
 }

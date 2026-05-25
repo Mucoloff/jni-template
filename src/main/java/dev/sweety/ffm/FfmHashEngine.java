@@ -5,7 +5,9 @@ import dev.sweety.Binding;
 import dev.sweety.HashEngine;
 import dev.sweety.HashSession;
 import dev.sweety.NativeLib;
+import dev.sweety.mem.NativeArena;
 import dev.sweety.pool.ObjectPool;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
@@ -38,15 +40,15 @@ public final class FfmHashEngine implements HashEngine {
     public FfmHashEngine(Backend backend) {
         this.backend = backend;
         SymbolLookup lib = SymbolLookup.libraryLookup(NativeLib.libraryPath(backend), Arena.global());
-        this.hash      = down(lib, "nat_fnv_hash",       FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG));
-        this.transform = down(lib, "nat_transform",      FunctionDescriptor.ofVoid(ADDRESS, JAVA_LONG, JAVA_BYTE));
-        this.batch     = down(lib, "nat_fnv_hash_batch", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS, JAVA_LONG));
-        this.sNew      = down(lib, "nat_fnv_new",         FunctionDescriptor.of(ADDRESS));
-        this.sUpdate   = down(lib, "nat_fnv_update",      FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG));
-        this.sDigest   = down(lib, "nat_fnv_digest",      FunctionDescriptor.of(JAVA_LONG, ADDRESS));
-        this.sReset    = down(lib, "nat_fnv_reset",       FunctionDescriptor.ofVoid(ADDRESS));
-        this.sFree     = down(lib, "nat_fnv_free",        FunctionDescriptor.ofVoid(ADDRESS));
-        this.sessions  = ObjectPool.threadLocal(
+        this.hash = down(lib, "nat_fnv_hash", FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG));
+        this.transform = down(lib, "nat_transform", FunctionDescriptor.ofVoid(ADDRESS, JAVA_LONG, JAVA_BYTE));
+        this.batch = down(lib, "nat_fnv_hash_batch", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS, JAVA_LONG));
+        this.sNew = down(lib, "nat_fnv_new", FunctionDescriptor.of(ADDRESS));
+        this.sUpdate = down(lib, "nat_fnv_update", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG));
+        this.sDigest = down(lib, "nat_fnv_digest", FunctionDescriptor.of(JAVA_LONG, ADDRESS));
+        this.sReset = down(lib, "nat_fnv_reset", FunctionDescriptor.ofVoid(ADDRESS));
+        this.sFree = down(lib, "nat_fnv_free", FunctionDescriptor.ofVoid(ADDRESS));
+        this.sessions = ObjectPool.threadLocal(
                 () -> new FfmSession(newState()),
                 FfmSession::doReset,
                 FfmSession::doFree,
@@ -59,21 +61,27 @@ public final class FfmHashEngine implements HashEngine {
                 fd);
     }
 
-    @Override public long hash(byte[] data) {
+    @Override
+    public long hash(byte @NotNull [] data) {
         try (Arena a = Arena.ofConfined()) {
-            MemorySegment seg = a.allocate(data.length);
-            MemorySegment.copy(data, 0, seg, JAVA_BYTE, 0, data.length);
+            MemorySegment seg = NativeArena.copyOf(a, data);
             return (long) hash.invokeExact(seg, (long) data.length);
-        } catch (Throwable t) { throw wrap(t); }
+        } catch (Throwable t) {
+            throw wrap(t);
+        }
     }
 
-    @Override public long hash(MemorySegment data, long len) {
+    @Override
+    public long hash(@NotNull MemorySegment data, long len) {
         try {
             return (long) hash.invokeExact(data, len);
-        } catch (Throwable t) { throw wrap(t); }
+        } catch (Throwable t) {
+            throw wrap(t);
+        }
     }
 
-    @Override public long[] hashBatch(MemorySegment[] data, long[] lens) {
+    @Override
+    public long @NotNull [] hashBatch(MemorySegment[] data, long @NotNull [] lens) {
         int n = data.length;
         try (Arena a = Arena.ofConfined()) {
             MemorySegment ptrs = a.allocate(ADDRESS.byteSize() * n);
@@ -87,23 +95,41 @@ public final class FfmHashEngine implements HashEngine {
             long[] result = new long[n];
             for (int i = 0; i < n; i++) result[i] = out.getAtIndex(JAVA_LONG, i);
             return result;
-        } catch (Throwable t) { throw wrap(t); }
+        } catch (Throwable t) {
+            throw wrap(t);
+        }
     }
 
-    @Override public void transform(MemorySegment data, long len, byte add) {
+    @Override
+    public void transform(@NotNull MemorySegment data, long len, byte add) {
         try {
             transform.invokeExact(data, len, add);
-        } catch (Throwable t) { throw wrap(t); }
+        } catch (Throwable t) {
+            throw wrap(t);
+        }
     }
 
-    @Override public HashSession open() { return sessions.acquire(); }
+    @Override
+    public @NotNull HashSession open() {
+        return sessions.acquire();
+    }
 
-    @Override public Backend backend() { return backend; }
-    @Override public Binding binding() { return Binding.FFM; }
+    @Override
+    public @NotNull Backend backend() {
+        return backend;
+    }
+
+    @Override
+    public @NotNull Binding binding() {
+        return Binding.FFM;
+    }
 
     private MemorySegment newState() {
-        try { return (MemorySegment) sNew.invokeExact(); }
-        catch (Throwable t) { throw wrap(t); }
+        try {
+            return (MemorySegment) sNew.invokeExact();
+        } catch (Throwable t) {
+            throw wrap(t);
+        }
     }
 
     private static RuntimeException wrap(Throwable t) {
@@ -113,24 +139,52 @@ public final class FfmHashEngine implements HashEngine {
     final class FfmSession implements HashSession {
         private final MemorySegment state;
 
-        FfmSession(MemorySegment state) { this.state = state; }
+        FfmSession(MemorySegment state) {
+            this.state = state;
+        }
 
-        @Override public void update(MemorySegment data, long len) {
-            try { sUpdate.invokeExact(state, data, len); }
-            catch (Throwable t) { throw wrap(t); }
+        @Override
+        public void update(@NotNull MemorySegment data, long len) {
+            try {
+                sUpdate.invokeExact(state, data, len);
+            } catch (Throwable t) {
+                throw wrap(t);
+            }
         }
-        @Override public long digest() {
-            try { return (long) sDigest.invokeExact((MemorySegment) state); }
-            catch (Throwable t) { throw wrap(t); }
+
+        @Override
+        public long digest() {
+            try {
+                return (long) sDigest.invokeExact((MemorySegment) state);
+            } catch (Throwable t) {
+                throw wrap(t);
+            }
         }
-        @Override public void reset() { doReset(); }
-        @Override public void close() { sessions.release(this); }
+
+        @Override
+        public void reset() {
+            doReset();
+        }
+
+        @Override
+        public void close() {
+            sessions.release(this);
+        }
 
         void doReset() {
-            try { sReset.invokeExact(state); } catch (Throwable t) { throw wrap(t); }
+            try {
+                sReset.invokeExact(state);
+            } catch (Throwable t) {
+                throw wrap(t);
+            }
         }
+
         void doFree() {
-            try { sFree.invokeExact(state); } catch (Throwable t) { throw wrap(t); }
+            try {
+                sFree.invokeExact(state);
+            } catch (Throwable t) {
+                throw wrap(t);
+            }
         }
     }
 }

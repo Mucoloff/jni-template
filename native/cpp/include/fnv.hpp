@@ -10,12 +10,12 @@
 // Hasher) so the C++ and Rust backends share one definition.
 struct Fnv {
     static constexpr uint64_t OFFSET_BASIS = 0xcbf29ce484222325ULL;
-    static constexpr uint64_t PRIME        = 0x100000001b3ULL;
+    static constexpr uint64_t PRIME = 0x100000001b3ULL;
 
     uint64_t state = OFFSET_BASIS;
 
     // Incremental update — feed a chunk of bytes into the running hash.
-    void update(const uint8_t* data, size_t len) {
+    void update(const uint8_t *data, size_t len) {
         uint64_t h = state;
         for (size_t i = 0; i < len; ++i) {
             h ^= data[i];
@@ -29,7 +29,7 @@ struct Fnv {
     void reset() { state = OFFSET_BASIS; }
 
     // One-shot convenience: hash a buffer in a single call.
-    static uint64_t hash(const uint8_t* data, size_t len) {
+    static uint64_t hash(const uint8_t *data, size_t len) {
         Fnv f;
         f.update(data, len);
         return f.digest();

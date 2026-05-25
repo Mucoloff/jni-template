@@ -11,7 +11,9 @@ pub struct Fnv {
 
 impl Fnv {
     pub fn new() -> Self {
-        Fnv { state: OFFSET_BASIS }
+        Fnv {
+            state: OFFSET_BASIS,
+        }
     }
 
     /// Incremental update — feed a chunk of bytes into the running hash.
