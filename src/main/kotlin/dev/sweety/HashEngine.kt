@@ -44,5 +44,17 @@ interface HashEngine {
                 Binding.FFM -> FfmHashEngine(backend)
             }
         }
+
+        /** Default binding (FFM) on the given backend. */
+        @JvmStatic
+        fun of(backend: Backend): HashEngine = of(Binding.FFM, backend)
+
+        /** C++ backend on the chosen binding. */
+        @JvmStatic
+        fun cpp(binding: Binding): HashEngine = of(binding, Backend.CPP)
+
+        /** Rust backend on the chosen binding. */
+        @JvmStatic
+        fun rust(binding: Binding): HashEngine = of(binding, Backend.RUST)
     }
 }

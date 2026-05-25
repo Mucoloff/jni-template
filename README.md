@@ -65,23 +65,31 @@ Benchmarks (`src/jmh/java/dev/sweety/bench/`): `CrossingBench` (per-call overhea
 
 ## Code generation (single source of truth)
 
-The native surface is declared **once** on the `@NativeApi` interface
-`dev.sweety.jni.RawNatives`. A Java annotation processor (`:processor`, with
-annotations in `:annotations`) derives each method's JNI signature from its types
-and generates:
+The native surface is declared **once** at the `MemorySegment` level on the
+`@NativeApi` interface `dev.sweety.jni.FnvNative`, with `@Ptr` marking pointer
+params/returns and `@Cabi("…")` naming the FFM symbol. A Java annotation processor
+(`:processor`, annotations in `:annotations`) lowers each method twice — JNI
+(`@Ptr MemorySegment` → `long` address) and FFM (`@Ptr` → `ADDRESS`) — and
+generates **all** the binding plumbing:
 
-- the per-backend holder classes `CppNatives` / `RustNatives` (the `native` decls + loader);
+- `RawNatives` (lowered JNI interface) + the holder classes `CppNatives` /
+  `RustNatives` (`native` decls + loader);
+- `JniBindings` — the segment↔address glue (`segment.address()`) over a holder;
+- `FfmBindings` — cached downcall handles + `FunctionDescriptor`s + `invokeExact`
+  wrappers for every `@Cabi` method;
 - a JSON descriptor `build/generated/native-api.json`.
 
 The C++ build (`genCppRegistrations` Gradle task) and the Rust build (`build.rs`)
-turn that descriptor into their `RegisterNatives` tables — so the name + signature
+turn that descriptor into their `RegisterNatives` tables, so the name + signature
 + fn-ptr triples are never hand-written and **cannot drift** between languages
-(the exact bug class that previously broke the Rust backend). The native author
-writes only the `jni_*` thunk bodies, named identically in C++ and Rust.
+(the bug class that once broke the Rust backend). The hand-written engines
+(`JniHashEngine`, `FfmHashEngine`) keep only the ergonomic bits: `byte[]`
+convenience, batch marshalling, pooled sessions. JNI signatures are validated at
+compile time (e.g. `@Ptr` only on `MemorySegment`, no arrays in FFM methods).
 
-To add a native method: add it to `RawNatives` with `@Jni(thunk="jni_…")`, then
-implement the `jni_…` body in `jni_hashengine.cpp` and `jni_hashengine.rs`. The
-holders, signatures, and both registration tables regenerate automatically.
+To add a native op: declare it on `FnvNative` (`@Jni(thunk=…)` and/or `@Cabi(…)`),
+then write only the `jni_…` thunk body (C++ + Rust) and/or the `nat_…` C-ABI body.
+Holders, JNI tables, FFM handles, and signatures regenerate automatically.
 
 ## Adapting
 

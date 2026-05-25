@@ -1,7 +1,9 @@
 package dev.sweety.processor;
 
+import dev.sweety.nativeapi.Cabi;
 import dev.sweety.nativeapi.Jni;
 import dev.sweety.nativeapi.NativeApi;
+import dev.sweety.nativeapi.Ptr;
 
 import javax.annotation.processing.*;
 import javax.lang.model.SourceVersion;
@@ -14,24 +16,31 @@ import java.io.IOException;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * Generates, from one {@code @NativeApi} interface, the per-backend JNI holder
- * classes ({@code <Name>Natives}) and a JSON descriptor of {name, jniSig, thunk}.
- * The C++ and Rust builds read that descriptor to emit their RegisterNatives
- * tables, so the native surface is declared exactly once.
+ * From one {@code @NativeApi} interface (declared at the MemorySegment level),
+ * generates the whole binding plumbing for both bindings:
  *
- * <p>Pass the descriptor output path with {@code -Anative.descriptor=<file>}.
+ * <ul>
+ *   <li>{@code RawNatives} (lowered JNI interface, addresses as {@code long}) and the
+ *       per-backend holder classes implementing it with {@code native} methods;</li>
+ *   <li>{@code native-api.json} (name + JNI signature + thunk) for the C++/Rust tables;</li>
+ *   <li>{@code JniBindings} — MemorySegment-level adapter that delegates to a holder,
+ *       converting {@code segment.address()};</li>
+ *   <li>{@code FfmBindings} — cached downcall handles + {@code invokeExact} wrappers for
+ *       every {@code @Cabi} method.</li>
+ * </ul>
+ *
+ * Pass the JSON descriptor path with {@code -Anative.descriptor=<file>}.
  */
 @SupportedAnnotationTypes("dev.sweety.nativeapi.NativeApi")
 @SupportedOptions(NativeApiProcessor.OPT_DESCRIPTOR)
 public final class NativeApiProcessor extends AbstractProcessor {
 
     static final String OPT_DESCRIPTOR = "native.descriptor";
+    private static final String SEGMENT = "java.lang.foreign.MemorySegment";
 
     @Override
     public SourceVersion getSupportedSourceVersion() {
@@ -55,160 +64,372 @@ public final class NativeApiProcessor extends AbstractProcessor {
     }
 
     private void handle(TypeElement iface) throws IOException {
-        NativeApi api = iface.getAnnotation(NativeApi.class);
-        if (api == null) return;
         String pkg = processingEnv.getElementUtils().getPackageOf(iface).getQualifiedName().toString();
-        String ifaceName = iface.getSimpleName().toString();
+        NativeApi api = iface.getAnnotation(NativeApi.class);
+        String[] enums = api.backendEnums();
+        // Holder name derived from the enum constant: CPP -> Cpp, RUST -> Rust.
+        String[] names = new String[enums.length];
+        for (int i = 0; i < enums.length; i++) {
+            String e = enums[i];
+            names[i] = e.substring(0, 1).toUpperCase() + e.substring(1).toLowerCase();
+        }
 
         List<Method> methods = new ArrayList<>();
+        Set<String> thunks = new HashSet<>();
         for (Element m : iface.getEnclosedElements()) {
             if (m.getKind() != ElementKind.METHOD) continue;
-            ExecutableElement ee = (ExecutableElement) m;
-            Jni jni = ee.getAnnotation(Jni.class);
-            if (jni == null) {
-                error(ee, "method missing @Jni(thunk=...)");
-                continue;
+            Method method = parse((ExecutableElement) m);
+            if (method == null) continue; // error already reported
+            if (method.jni != null && !thunks.add(method.jni.thunk())) {
+                error(m, "duplicate @Jni thunk: " + method.jni.thunk());
             }
-            methods.add(Method.of(ee, jni));
+            methods.add(method);
         }
 
-        String[] enums = api.backendEnums();
-        String[] names = Arrays.stream(enums).map(s -> s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase()).toArray(String[]::new);
-        if (names.length != enums.length) {
-            error(iface, "backendNames and backendEnums must have equal length");
-            return;
-        }
+        List<Method> jni = methods.stream().filter(x -> x.jni != null).collect(Collectors.toList());
+        List<Method> ffm = methods.stream().filter(x -> x.cabi != null).collect(Collectors.toList());
+
         List<String> holders = new ArrayList<>();
         for (int i = 0; i < names.length; i++) {
-            String cls = names[i] + "Natives";
-            holders.add(pkg.replace('.', '/') + "/" + cls);
-            writeHolder(pkg, cls, ifaceName, enums[i], methods);
+            holders.add(pkg.replace('.', '/') + "/" + names[i] + "Natives");
         }
 
-        writeDescriptor(pkg, names, holders, methods);
+        writeRawNatives(pkg, jni);
+        for (int i = 0; i < names.length; i++) writeHolder(pkg, names[i] + "Natives", enums[i], jni);
+        writeJniBindings(pkg, names, enums, jni);
+        writeFfmBindings(pkg, ffm);
+        writeDescriptor(names, holders, jni);
     }
 
-    private void writeHolder(String pkg, String cls, String iface, String backendEnum,
-                             List<Method> methods) throws IOException {
-        String skel = """
-                package %pkg%;
-                
-                import dev.sweety.Backend;
-                import dev.sweety.NativeLib;
-                // Generated by NativeApiProcessor. Do not edit.
-                final class %cls% implements %iface% {
-                    static {
-                        NativeLib.loadForJni(Backend.%backendEnum%);
-                    }
-                
-                    private static final %cls% INSTANCE = new %cls%();
-                
-                    public static %cls% get() {
-                        return INSTANCE;
-                    }
-                
-                    private %cls%(){}
-                
-                """.replace("%pkg%", pkg).replace("%cls%", cls).replace("%iface%", iface).replace("%backendEnum%", backendEnum);
-        StringBuilder sb = new StringBuilder(skel);
-        for (Method m : methods) {
-            sb.append("    @Override public native ").append(m.javaReturn).append(" ")
-                    .append(m.name).append("(").append(m.javaParams).append(");\n");
+    // --- generation --------------------------------------------------------------
+
+    private void writeRawNatives(String pkg, List<Method> jni) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("package ").append(pkg).append(";\n\n")
+          .append("// Generated by NativeApiProcessor. Do not edit.\n")
+          .append("interface RawNatives {\n");
+        for (Method m : jni) {
+            sb.append("    ").append(m.loweredReturn()).append(" ").append(m.name)
+              .append("(").append(m.loweredParams()).append(");\n");
         }
         sb.append("}\n");
-
-        JavaFileObject f = processingEnv.getFiler().createSourceFile(pkg + "." + cls);
-        try (Writer w = f.openWriter()) {
-            w.write(sb.toString());
-        }
+        write(pkg + ".RawNatives", sb);
     }
 
-    private void writeDescriptor(String pkg, String[] names, List<String> holders,
-                                 List<Method> methods) throws IOException {
+    private void writeHolder(String pkg, String cls, String backendEnum, List<Method> jni) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("package ").append(pkg).append(";\n\n")
+          .append("import dev.sweety.Backend;\n")
+          .append("import dev.sweety.NativeLib;\n\n")
+          .append("// Generated by NativeApiProcessor. Do not edit.\n")
+          .append("final class ").append(cls).append(" implements RawNatives {\n")
+          .append("    static { NativeLib.loadForJni(Backend.").append(backendEnum).append("); }\n")
+          .append("    static final ").append(cls).append(" INSTANCE = new ").append(cls).append("();\n")
+          .append("    private ").append(cls).append("() {}\n\n");
+        for (Method m : jni) {
+            sb.append("    @Override public native ").append(m.loweredReturn()).append(" ")
+              .append(m.name).append("(").append(m.loweredParams()).append(");\n");
+        }
+        sb.append("}\n");
+        write(pkg + "." + cls, sb);
+    }
+
+    private void writeJniBindings(String pkg, String[] names, String[] enums, List<Method> jni) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("package ").append(pkg).append(";\n\n")
+          .append("import dev.sweety.Backend;\n")
+          .append("import java.lang.foreign.MemorySegment;\n\n")
+          .append("// Generated by NativeApiProcessor. Do not edit. MemorySegment<->address glue over a JNI holder.\n")
+          .append("public final class JniBindings {\n")
+          .append("    private final RawNatives h;\n")
+          .append("    private JniBindings(RawNatives h) { this.h = h; }\n\n")
+          .append("    public static JniBindings of(Backend backend) {\n")
+          .append("        return new JniBindings(switch (backend) {\n");
+        for (int i = 0; i < names.length; i++) {
+            sb.append("            case ").append(enums[i]).append(" -> ").append(names[i]).append("Natives.INSTANCE;\n");
+        }
+        sb.append("        });\n    }\n\n");
+        for (Method m : jni) {
+            sb.append("    public ").append(m.segmentReturn()).append(" ").append(m.name)
+              .append("(").append(m.segmentParams()).append(") {\n        ");
+            String call = "h." + m.name + "(" + m.loweredArgs() + ")";
+            switch (m.ret) {
+                case VOID -> sb.append(call).append(";\n");
+                case PTR -> sb.append("return MemorySegment.ofAddress(").append(call).append(");\n");
+                default -> sb.append("return ").append(call).append(";\n");
+            }
+            sb.append("    }\n");
+        }
+        sb.append("}\n");
+        write(pkg + ".JniBindings", sb);
+    }
+
+    private void writeFfmBindings(String pkg, List<Method> ffm) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("package ").append(pkg).append(";\n\n")
+          .append("import dev.sweety.Backend;\n")
+          .append("import dev.sweety.NativeLib;\n")
+          .append("import java.lang.foreign.Arena;\n")
+          .append("import java.lang.foreign.FunctionDescriptor;\n")
+          .append("import java.lang.foreign.Linker;\n")
+          .append("import java.lang.foreign.MemorySegment;\n")
+          .append("import java.lang.foreign.SymbolLookup;\n")
+          .append("import java.lang.invoke.MethodHandle;\n")
+          .append("import static java.lang.foreign.ValueLayout.*;\n\n")
+          .append("// Generated by NativeApiProcessor. Do not edit. Cached FFM downcall handles.\n")
+          .append("public final class FfmBindings {\n")
+          .append("    private static final Linker LINKER = Linker.nativeLinker();\n");
+        for (Method m : ffm) sb.append("    private final MethodHandle mh_").append(m.name).append(";\n");
+        sb.append("\n    public FfmBindings(Backend backend) {\n")
+          .append("        SymbolLookup lib = SymbolLookup.libraryLookup(NativeLib.libraryPath(backend), Arena.global());\n");
+        for (Method m : ffm) {
+            sb.append("        this.mh_").append(m.name).append(" = down(lib, \"").append(m.cabi.value())
+              .append("\", ").append(m.functionDescriptor()).append(");\n");
+        }
+        sb.append("    }\n\n")
+          .append("    private static MethodHandle down(SymbolLookup lib, String name, FunctionDescriptor fd) {\n")
+          .append("        return LINKER.downcallHandle(\n")
+          .append("                lib.find(name).orElseThrow(() -> new IllegalStateException(\"missing symbol \" + name)), fd);\n")
+          .append("    }\n\n")
+          .append("    private static RuntimeException wrap(Throwable t) {\n")
+          .append("        return t instanceof RuntimeException re ? re : new RuntimeException(t);\n")
+          .append("    }\n\n");
+        for (Method m : ffm) {
+            sb.append("    public ").append(m.segmentReturn()).append(" ").append(m.name)
+              .append("(").append(m.segmentParams()).append(") {\n        try {\n            ");
+            String invoke = "mh_" + m.name + ".invokeExact(" + m.segmentArgs() + ")";
+            switch (m.ret) {
+                case VOID -> sb.append(invoke).append(";\n");
+                case PTR -> sb.append("return (MemorySegment) ").append(invoke).append(";\n");
+                case LONG -> sb.append("return (long) ").append(invoke).append(";\n");
+                case INT -> sb.append("return (int) ").append(invoke).append(";\n");
+                case BYTE -> sb.append("return (byte) ").append(invoke).append(";\n");
+                default -> error(null, "unsupported FFM return for " + m.name);
+            }
+            sb.append("        } catch (Throwable t) {\n            throw wrap(t);\n        }\n    }\n");
+        }
+        sb.append("}\n");
+        write(pkg + ".FfmBindings", sb);
+    }
+
+    private void writeDescriptor(String[] names, List<String> holders, List<Method> jni) throws IOException {
         String path = processingEnv.getOptions().get(OPT_DESCRIPTOR);
         if (path == null) {
             processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
                     "-A" + OPT_DESCRIPTOR + " not set; skipping JSON descriptor");
             return;
         }
-        StringBuilder j = new StringBuilder();
-        j.append("{\n  \"backends\": [\n");
+        StringBuilder j = new StringBuilder("{\n  \"backends\": [\n");
         for (int i = 0; i < names.length; i++) {
-            j.append("    {\"name\": \"").append(names[i]).append("\", \"holder\": \"")
-                    .append(holders.get(i)).append("\"}").append(i + 1 < names.length ? "," : "").append("\n");
+            j.append("    {\"name\": \"").append(names[i]).append("\", \"holder\": \"").append(holders.get(i))
+             .append("\"}").append(i + 1 < names.length ? "," : "").append("\n");
         }
         j.append("  ],\n  \"methods\": [\n");
-        for (int i = 0; i < methods.size(); i++) {
-            Method m = methods.get(i);
-            j.append("    {\"name\": \"").append(m.name).append("\", \"sig\": \"").append(m.jniSig)
-                    .append("\", \"thunk\": \"").append(m.thunk).append("\", \"critical\": ").append(m.critical)
-                    .append("}").append(i + 1 < methods.size() ? "," : "").append("\n");
+        for (int i = 0; i < jni.size(); i++) {
+            Method m = jni.get(i);
+            j.append("    {\"name\": \"").append(m.name).append("\", \"sig\": \"").append(m.jniSig())
+             .append("\", \"thunk\": \"").append(m.jni.thunk()).append("\", \"critical\": ").append(m.jni.critical())
+             .append("}").append(i + 1 < jni.size() ? "," : "").append("\n");
         }
         j.append("  ]\n}\n");
-
         Path out = Path.of(path);
         if (out.getParent() != null) Files.createDirectories(out.getParent());
         Files.writeString(out, j.toString());
-        processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE,
-                "wrote native descriptor: " + out);
+        processingEnv.getMessager().printMessage(Diagnostic.Kind.NOTE, "wrote native descriptor: " + out);
+    }
+
+    private void write(String fqcn, StringBuilder body) throws IOException {
+        JavaFileObject f = processingEnv.getFiler().createSourceFile(fqcn);
+        try (Writer w = f.openWriter()) {
+            w.write(body.toString());
+        }
+    }
+
+    // --- parsing / validation ----------------------------------------------------
+
+    private Method parse(ExecutableElement ee) {
+        Jni jni = ee.getAnnotation(Jni.class);
+        Cabi cabi = ee.getAnnotation(Cabi.class);
+        if (jni == null && cabi == null) {
+            error(ee, "method needs @Jni and/or @Cabi");
+            return null;
+        }
+        boolean retPtr = ee.getAnnotation(Ptr.class) != null;
+        Kind ret = classify(ee, ee.getReturnType(), retPtr, true);
+
+        List<Kind> params = new ArrayList<>();
+        for (VariableElement p : ee.getParameters()) {
+            boolean ptr = p.getAnnotation(Ptr.class) != null;
+            params.add(classify(p, p.asType(), ptr, false));
+        }
+        Method m = new Method(ee.getSimpleName().toString(), ret, params, jni, cabi);
+
+        if (cabi != null) {
+            for (Kind k : params) {
+                if (k.isArray()) {
+                    error(ee, "@Cabi method cannot take arrays (FFM is pointer-based): " + m.name);
+                    break;
+                }
+            }
+            if (ret.isArray()) error(ee, "@Cabi method cannot return an array: " + m.name);
+        }
+        return m;
+    }
+
+    /** Classify a type + @Ptr flag into a {@link Kind}, reporting misuse. */
+    private Kind classify(Element where, TypeMirror t, boolean ptr, boolean isReturn) {
+        boolean segment = t.toString().equals(SEGMENT);
+        if (ptr) {
+            if (!segment) {
+                error(where, "@Ptr only applies to MemorySegment");
+                return Kind.PTR;
+            }
+            return Kind.PTR;
+        }
+        if (segment) {
+            error(where, "MemorySegment parameter/return must be annotated @Ptr");
+            return Kind.PTR;
+        }
+        return switch (t.getKind()) {
+            case VOID -> Kind.VOID;
+            case LONG -> Kind.LONG;
+            case INT -> Kind.INT;
+            case BYTE -> Kind.BYTE;
+            case ARRAY -> {
+                TypeMirror c = ((ArrayType) t).getComponentType();
+                yield switch (c.getKind()) {
+                    case BYTE -> Kind.BYTE_ARRAY;
+                    case LONG -> Kind.LONG_ARRAY;
+                    default -> {
+                        error(where, "unsupported array type: " + t);
+                        yield Kind.LONG_ARRAY;
+                    }
+                };
+            }
+            default -> {
+                error(where, "unsupported type: " + t);
+                yield Kind.LONG;
+            }
+        };
     }
 
     private void error(Element e, String msg) {
         processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, msg, e);
     }
 
-    /**
-     * A captured native method: name, JNI signature, thunk symbol, Java decl pieces.
-     */
-    private record Method(String name, String jniSig, String thunk, boolean critical, String javaReturn,
-                          String javaParams) {
+    private enum Kind {
+        VOID, PTR, LONG, INT, BYTE, BYTE_ARRAY, LONG_ARRAY;
 
-        static Method of(ExecutableElement ee, Jni jni) {
-            String name = ee.getSimpleName().toString();
-            StringBuilder sig = new StringBuilder("(");
-            StringBuilder params = new StringBuilder();
-            List<? extends VariableElement> ps = ee.getParameters();
-            for (int i = 0; i < ps.size(); i++) {
-                TypeMirror t = ps.get(i).asType();
-                sig.append(jniSig(t));
-                if (i > 0) params.append(", ");
-                params.append(javaType(t)).append(" p").append(i);
-            }
-            sig.append(")").append(jniSig(ee.getReturnType()));
-            return new Method(name, sig.toString(), jni.thunk(), jni.critical(),
-                    javaType(ee.getReturnType()), params.toString());
-        }
+        boolean isArray() { return this == BYTE_ARRAY || this == LONG_ARRAY; }
 
-        private static String jniSig(TypeMirror t) {
-            return switch (t.getKind()) {
-                case VOID -> "V";
-                case BOOLEAN -> "Z";
-                case BYTE -> "B";
-                case CHAR -> "C";
-                case SHORT -> "S";
-                case INT -> "I";
-                case LONG -> "J";
-                case FLOAT -> "F";
-                case DOUBLE -> "D";
-                case ARRAY -> "[" + jniSig(((ArrayType) t).getComponentType());
-                default -> throw new IllegalArgumentException("unsupported JNI type: " + t);
-            };
-        }
-
-        private static String javaType(TypeMirror t) {
-            return switch (t.getKind()) {
+        String loweredJava() {
+            return switch (this) {
                 case VOID -> "void";
-                case BOOLEAN -> "boolean";
-                case BYTE -> "byte";
-                case CHAR -> "char";
-                case SHORT -> "short";
+                case PTR, LONG -> "long";
                 case INT -> "int";
-                case LONG -> "long";
-                case FLOAT -> "float";
-                case DOUBLE -> "double";
-                case ARRAY -> javaType(((ArrayType) t).getComponentType()) + "[]";
-                default -> throw new IllegalArgumentException("unsupported type: " + t);
+                case BYTE -> "byte";
+                case BYTE_ARRAY -> "byte[]";
+                case LONG_ARRAY -> "long[]";
             };
+        }
+
+        String jniSig() {
+            return switch (this) {
+                case VOID -> "V";
+                case PTR, LONG -> "J";
+                case INT -> "I";
+                case BYTE -> "B";
+                case BYTE_ARRAY -> "[B";
+                case LONG_ARRAY -> "[J";
+            };
+        }
+
+        String segmentJava() {
+            return switch (this) {
+                case VOID -> "void";
+                case PTR -> "MemorySegment";
+                case LONG -> "long";
+                case INT -> "int";
+                case BYTE -> "byte";
+                case BYTE_ARRAY -> "byte[]";
+                case LONG_ARRAY -> "long[]";
+            };
+        }
+
+        String layout() {
+            return switch (this) {
+                case PTR -> "ADDRESS";
+                case LONG -> "JAVA_LONG";
+                case INT -> "JAVA_INT";
+                case BYTE -> "JAVA_BYTE";
+                default -> throw new IllegalStateException("no layout for " + this);
+            };
+        }
+    }
+
+    private static final class Method {
+        final String name;
+        final Kind ret;
+        final List<Kind> params;
+        final Jni jni;   // nullable
+        final Cabi cabi; // nullable
+
+        Method(String name, Kind ret, List<Kind> params, Jni jni, Cabi cabi) {
+            this.name = name;
+            this.ret = ret;
+            this.params = params;
+            this.jni = jni;
+            this.cabi = cabi;
+        }
+
+        String loweredReturn() { return ret.loweredJava(); }
+        String segmentReturn() { return ret.segmentJava(); }
+
+        String loweredParams() { return params(Kind::loweredJava); }
+        String segmentParams() { return params(Kind::segmentJava); }
+
+        private String params(java.util.function.Function<Kind, String> ty) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < params.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(ty.apply(params.get(i))).append(" p").append(i);
+            }
+            return sb.toString();
+        }
+
+        /** Args passed from the segment-level wrapper down to the lowered holder. */
+        String loweredArgs() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < params.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(params.get(i) == Kind.PTR ? "p" + i + ".address()" : "p" + i);
+            }
+            return sb.toString();
+        }
+
+        /** Args passed straight through to invokeExact (segment-level). */
+        String segmentArgs() {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < params.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append("p").append(i);
+            }
+            return sb.toString();
+        }
+
+        String jniSig() {
+            StringBuilder sb = new StringBuilder("(");
+            for (Kind k : params) sb.append(k.jniSig());
+            return sb.append(")").append(ret.jniSig()).toString();
+        }
+
+        String functionDescriptor() {
+            String params = this.params.stream().map(Kind::layout).collect(Collectors.joining(", "));
+            if (ret == Kind.VOID) {
+                return "FunctionDescriptor.ofVoid(" + params + ")";
+            }
+            String lead = ret.layout();
+            return "FunctionDescriptor.of(" + lead + (params.isEmpty() ? "" : ", " + params) + ")";
         }
     }
 }
