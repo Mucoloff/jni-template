@@ -36,6 +36,7 @@ val nativeOutputDir = layout.buildDirectory.dir("natives").get().asFile
 
 tasks.named<JavaExec>("run") {
     dependsOn("buildNatives")
+    System.getProperty("jni.backend")?.let { systemProperty("jni.backend", it) }
     doFirst {
         jvmArgs(
             "-Djava.library.path=${nativeOutputDir.absolutePath}",
