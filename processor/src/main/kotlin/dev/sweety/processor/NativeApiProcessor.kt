@@ -21,6 +21,8 @@ import dev.sweety.nativeapi.Jni
 import dev.sweety.nativeapi.Marshal
 import dev.sweety.nativeapi.NativeApi
 import dev.sweety.nativeapi.Ptr
+import dev.sweety.nativegen.spi.NativeMethod as Method
+import dev.sweety.nativegen.spi.NativeType as Kind
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -82,7 +84,7 @@ class NativeApiProcessor(
 
         if (engine != null) {
             val common = methods.filter {
-                it.strategy != null && it.jni != null && it.cabi != null && isEngineRole(it.strategy)
+                it.strategy != null && it.jni != null && it.cabi != null && isEngineRole(it.strategy!!)
             }
             writeBindings(pkg, common)
             writeEngineBase(pkg, engine, common)
@@ -181,12 +183,12 @@ class NativeApiProcessor(
         fun kinds(m: Method) = m.params.joinToString(", ") { "\"${it.kindName()}\"" }
         val methods = join(jni, ",\n") {
             "    {\"name\": \"${it.name}\", \"sig\": \"${it.jniSig()}\", \"thunk\": \"${it.jni!!.thunk}\"" +
-                ", \"critical\": ${it.jni.critical}, \"shape\": \"${shape(it)}\"" +
+                ", \"critical\": ${it.jni!!.critical}, \"shape\": \"${shape(it)}\"" +
                 ", \"ret\": \"${it.ret.kindName()}\", \"params\": [${kinds(it)}], \"target\": \"${target(it)}\"}"
         }
         // Every flat C-ABI symbol: op != null → body generated; op null → hand-written (just declared).
         val cabi = all.filter { it.cabi != null }.joinToString(",\n") {
-            val op = if (it.core != null) "\"${it.core.name}\"" else "null"
+            val op = if (it.core != null) "\"${it.core!!.name}\"" else "null"
             "    {\"symbol\": \"${it.cabi!!.value}\", \"op\": $op" +
                 ", \"ret\": \"${it.ret.kindName()}\", \"params\": [${kinds(it)}]}"
         }
@@ -424,81 +426,6 @@ class NativeApiProcessor(
 
     private fun simpleName(fqn: String) = fqn.substringAfterLast('.')
     private fun packageOf(fqn: String) = if ('.' in fqn) fqn.substringBeforeLast('.') else ""
-
-    private enum class Kind {
-        VOID, PTR, LONG, INT, BYTE, BYTE_ARRAY, LONG_ARRAY;
-
-        val isArray get() = this == BYTE_ARRAY || this == LONG_ARRAY
-
-        fun loweredJava() = when (this) {
-            VOID -> "void"; PTR, LONG -> "long"; INT -> "int"; BYTE -> "byte"
-            BYTE_ARRAY -> "byte[]"; LONG_ARRAY -> "long[]"
-        }
-
-        fun jniSig() = when (this) {
-            VOID -> "V"; PTR, LONG -> "J"; INT -> "I"; BYTE -> "B"; BYTE_ARRAY -> "[B"; LONG_ARRAY -> "[J"
-        }
-
-        fun segmentJava() = when (this) {
-            VOID -> "void"; PTR -> "MemorySegment"; LONG -> "long"; INT -> "int"; BYTE -> "byte"
-            BYTE_ARRAY -> "byte[]"; LONG_ARRAY -> "long[]"
-        }
-
-        fun layout() = when (this) {
-            PTR -> "ADDRESS"; LONG -> "JAVA_LONG"; INT -> "JAVA_INT"; BYTE -> "JAVA_BYTE"
-            else -> error("no layout for $this")
-        }
-
-        /** Lowercased name for the native-api.json (consumed by the C++/Rust renderers). */
-        fun kindName() = when (this) {
-            VOID -> "void"; PTR -> "ptr"; LONG -> "long"; INT -> "int"; BYTE -> "byte"
-            BYTE_ARRAY -> "byteArray"; LONG_ARRAY -> "longArray"
-        }
-    }
-
-    private class Method(
-        val name: String,
-        val ret: Kind,
-        val params: List<Kind>,
-        val jni: Jni?,
-        val cabi: Cabi?,
-        val strategy: Marshal.Strategy?,
-        val engineName: String,
-        val ifaceMethod: Boolean,
-        val core: Core.Op?,
-    ) {
-        fun loweredReturn() = ret.loweredJava()
-        fun segmentReturn() = ret.segmentJava()
-        fun loweredParams() = params { it.loweredJava() }
-        fun segmentParams() = params { it.segmentJava() }
-
-        private inline fun params(ty: (Kind) -> String) =
-            params.mapIndexed { i, k -> "${ty(k)} p$i" }.joinToString(", ")
-
-        fun loweredArgs() = params.mapIndexed { i, k ->
-            if (k == Kind.PTR) "p$i.address()" else "p$i"
-        }.joinToString(", ")
-
-        fun engineParams() = engineParams(0)
-        fun sessionEngineParams() = engineParams(1)
-
-        private fun engineParams(from: Int) = params.drop(from).mapIndexed { idx, k ->
-            val i = idx + from
-            if (k == Kind.PTR) "@NotNull MemorySegment p$i" else "${k.segmentJava()} p$i"
-        }.joinToString(", ")
-
-        fun sessionArgs() = (listOf("state") + (1 until params.size).map { "p$it" }).joinToString(", ")
-
-        fun segmentArgs() = params.indices.joinToString(", ") { "p$it" }
-
-        fun jniSig() = "(" + params.joinToString("") { it.jniSig() } + ")" + ret.jniSig()
-
-        fun functionDescriptor(): String {
-            val ps = params.joinToString(", ") { it.layout() }
-            return if (ret == Kind.VOID) "FunctionDescriptor.ofVoid($ps)"
-            else "FunctionDescriptor.of(${ret.layout()}${if (ps.isEmpty()) "" else ", $ps"})"
-        }
-    }
 
     companion object {
         private const val SEGMENT = "java.lang.foreign.MemorySegment"

@@ -8,5 +8,6 @@ kotlin {
 
 dependencies {
     implementation(project(":annotations"))
+    implementation(project(":nativegen-spi"))
     implementation("com.google.devtools.ksp:symbol-processing-api:2.3.8")
 }
