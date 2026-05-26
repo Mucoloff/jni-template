@@ -9,9 +9,16 @@
           <set>
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/annotations" />
+            <option value="$PROJECT_DIR$/examples" />
+            <option value="$PROJECT_DIR$/examples/buffer" />
+            <option value="$PROJECT_DIR$/examples/hash" />
+            <option value="$PROJECT_DIR$/examples/mathops" />
+            <option value="$PROJECT_DIR$/fnv-plugin" />
             <option value="$PROJECT_DIR$/native" />
             <option value="$PROJECT_DIR$/native/cpp" />
             <option value="$PROJECT_DIR$/native/rust" />
+            <option value="$PROJECT_DIR$/nativegen-runtime" />
+            <option value="$PROJECT_DIR$/nativegen-spi" />
             <option value="$PROJECT_DIR$/processor" />
           </set>
         </option>

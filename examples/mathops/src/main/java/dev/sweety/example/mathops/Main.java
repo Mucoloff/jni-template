@@ -9,7 +9,7 @@ import dev.sweety.Backend;
  */
 public class Main {
     public static void main(String[] args) {
-        for (Backend b : Backend.values()) {
+        for (Backend b : Backend.getEntries()) {
             try {
                 FfmBindings ffm = new FfmBindings(b);
                 System.out.printf("FFM %-4s add(2,3)=%d imul(4,5)=%d neg(7)=%d%n",

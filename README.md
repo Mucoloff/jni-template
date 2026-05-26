@@ -17,16 +17,16 @@ example specs proving exactly that.
 
 ## Modules
 
-| Module | Role |
-|---|---|
-| `:annotations` | the spec annotations — `@NativeApi`, `@Jni`, `@Cabi`, `@Ptr`, `@Marshal`, `@Strategy`, `@Engine`, `@Core` |
-| `:nativegen-spi` | stable IR (`NativeMethod`/`NativeType`) + extension SPI (`MarshalStrategy`) |
-| `:processor` | the KSP processor: spec → JVM bindings + native descriptor; discovers plugins via `ServiceLoader` |
-| `:nativegen-runtime` | runtime support: `Binding`, `Backend`, `NativeLib`, `pool/*`, `mem/*` |
-| `:fnv-plugin` | example plugin: the `"heap"` / `"batch"` engine strategies |
-| `:examples:hash` | full runnable demo — FNV-1a over JNI×FFM × C++×Rust |
-| `:examples:mathops`, `:examples:buffer` | further specs proving the codegen generalizes |
-| `:native:cpp`, `:native:rust` | the hash example's native cores + generated boundary |
+| Module                                  | Role                                                                                                      |
+|-----------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `:annotations`                          | the spec annotations — `@NativeApi`, `@Jni`, `@Cabi`, `@Ptr`, `@Marshal`, `@Strategy`, `@Engine`, `@Core` |
+| `:nativegen-spi`                        | stable IR (`NativeMethod`/`NativeType`) + extension SPI (`MarshalStrategy`)                               |
+| `:processor`                            | the KSP processor: spec → JVM bindings + native descriptor; discovers plugins via `ServiceLoader`         |
+| `:nativegen-runtime`                    | runtime support: `Binding`, `Backend`, `NativeLib`, `pool/*`, `mem/*`                                     |
+| `:fnv-plugin`                           | example plugin: the `"heap"` / `"batch"` engine strategies                                                |
+| `:examples:hash`                        | full runnable demo — FNV-1a over JNI×FFM × C++×Rust                                                       |
+| `:examples:mathops`, `:examples:buffer` | further specs proving the codegen generalizes                                                             |
+| `:native:cpp`, `:native:rust`           | the hash example's native cores + generated boundary                                                      |
 
 ## How it works
 
