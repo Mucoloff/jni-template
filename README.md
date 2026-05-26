@@ -15,6 +15,9 @@ It's a framework, not a template: the core processor knows nothing about any spe
 Project-specific marshalling shapes plug in via an SPI. The repo ships three independent
 example specs proving exactly that.
 
+**→ See [USAGE.md](USAGE.md) for a step-by-step setup** with the `dev.sweety.nativegen` Gradle
+plugin (the whole consumer build is ~7 lines; see `examples/mathops`).
+
 ## Modules
 
 | Module                                  | Role                                                                                                      |
