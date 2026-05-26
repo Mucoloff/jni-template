@@ -30,6 +30,8 @@ val nativeOutputDir = layout.buildDirectory.dir("natives").get().asFile
 
 ksp {
     arg("native.descriptor", nativeDescriptor.absolutePath)
+    // The processor also emits the C++ side here (the Rust side still comes from build.rs).
+    arg("native.cpp.out", project(":native:cpp").file("generated/native.generated.cpp").absolutePath)
 }
 
 application {

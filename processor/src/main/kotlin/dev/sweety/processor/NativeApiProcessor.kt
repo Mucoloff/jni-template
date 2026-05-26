@@ -23,6 +23,7 @@ import dev.sweety.nativeapi.NativeApi
 import dev.sweety.nativeapi.Ptr
 import dev.sweety.nativeapi.Strategy
 import dev.sweety.nativegen.spi.MarshalStrategy
+import dev.sweety.nativegen.spi.NativeShape
 import dev.sweety.nativegen.spi.NativeMethod as Method
 import dev.sweety.nativegen.spi.NativeType as Kind
 import java.util.ServiceLoader
@@ -62,6 +63,10 @@ class NativeApiProcessor(
     private fun strategyFor(id: String): MarshalStrategy =
         strategies.firstOrNull { it.handles(id) } ?: error("no MarshalStrategy registered for id '$id'")
 
+    /** Custom native thunk shapes contributed by plugins on the KSP classpath. */
+    private val nativeShapes: List<NativeShape> =
+        ServiceLoader.load(NativeShape::class.java, javaClass.classLoader).toList()
+
     override fun process(resolver: Resolver): List<KSAnnotated> {
         if (done) return emptyList()
         val symbols = resolver.getSymbolsWithAnnotation(NativeApi::class.qualifiedName!!)
@@ -91,6 +96,7 @@ class NativeApiProcessor(
         writeJniBindings(pkg, names, enums, jni, engine != null)
         writeFfmBindings(pkg, ffm, engine != null)
         writeDescriptor(names, holders, methods, api.coreType)
+        options["native.cpp.out"]?.let { writeCppNative(it, names, holders, methods, api.coreType) }
 
         if (engine != null) {
             val common = methods.filter {
@@ -200,6 +206,100 @@ class NativeApiProcessor(
         out.parent?.let { Files.createDirectories(it) }
         Files.writeString(out, json)
         logger.warn("wrote native descriptor: $out")
+    }
+
+    /** C-ABI symbol a JNI thunk routes to: its own @Cabi, or the @Strategy(target). */
+    private fun targetOf(m: Method): String =
+        m.cabi?.value ?: m.target ?: error("no C-ABI target for thunk ${m.name} (set @Strategy(target=...))")
+
+    /**
+     * Emit the C++ side directly from the IR: forward decls, generic C-ABI lifecycle bodies,
+     * the PLAIN jni_* thunks, the RegisterNatives table and JNI_OnLoad. Custom thunk shapes
+     * (e.g. heap/batch) come from NativeShape plugins. Hand-written natively: the algorithm
+     * core and any loop C-ABI (transform/batch).
+     */
+    private fun writeCppNative(path: String, names: List<String>, holders: List<String>, all: List<Method>, core: String) {
+        val jni = all.filter { it.jni != null }
+        val cabi = all.filter { it.cabi != null }
+        val holder = holders[names.indexOf("Cpp")]
+
+        fun cParam(k: Kind) = when (k) { Kind.PTR -> "void*"; Kind.LONG -> "size_t"; Kind.BYTE -> "uint8_t"; else -> error("cParam $k") }
+        fun cRet(k: Kind) = when (k) { Kind.VOID -> "void"; Kind.PTR -> "void*"; Kind.LONG -> "uint64_t"; else -> error("cRet $k") }
+        fun jniType(k: Kind) = when (k) {
+            Kind.PTR, Kind.LONG -> "jlong"; Kind.INT -> "jint"; Kind.BYTE -> "jbyte"
+            Kind.BYTE_ARRAY -> "jbyteArray"; Kind.LONG_ARRAY -> "jlongArray"; Kind.VOID -> "void"
+        }
+        fun callArg(k: Kind, v: String) = when (k) {
+            Kind.PTR -> "reinterpret_cast<void*>($v)"; Kind.LONG -> "static_cast<size_t>($v)"; Kind.BYTE -> "static_cast<uint8_t>($v)"
+            else -> error("callArg $k")
+        }
+        fun sig(symbol: String, ret: Kind, params: List<Kind>, named: Boolean) =
+            "${cRet(ret)} $symbol(${params.mapIndexed { i, k -> cParam(k) + if (named) " p$i" else "" }.joinToString(", ")})"
+
+        fun plainThunk(m: Method): String {
+            val params = m.params.mapIndexed { i, k -> "${jniType(k)} p$i" }
+            val args = m.params.mapIndexed { i, k -> callArg(k, "p$i") }.joinToString(", ")
+            val head = "${jniType(m.ret)} ${m.jni!!.thunk}(JNIEnv*, jclass${if (params.isEmpty()) "" else ", " + params.joinToString(", ")}) {"
+            val call = "${targetOf(m)}($args)"
+            val stmt = when (m.ret) {
+                Kind.VOID -> "$call;"
+                Kind.PTR -> "return reinterpret_cast<jlong>($call);"
+                else -> "return static_cast<jlong>($call);"
+            }
+            return "    $head $stmt }"
+        }
+
+        fun lifecycle(m: Method): String {
+            val head = "${sig(m.cabi!!.value, m.ret, m.params, true)} {"
+            val body = when (m.core!!) {
+                dev.sweety.nativeapi.Core.Op.NEW -> "return new $core();"
+                dev.sweety.nativeapi.Core.Op.FREE -> "delete static_cast<$core*>(p0);"
+                dev.sweety.nativeapi.Core.Op.UPDATE -> "static_cast<$core*>(p0)->update(static_cast<const uint8_t*>(p1), p2);"
+                dev.sweety.nativeapi.Core.Op.DIGEST -> "return static_cast<const $core*>(p0)->digest();"
+                dev.sweety.nativeapi.Core.Op.RESET -> "static_cast<$core*>(p0)->reset();"
+                dev.sweety.nativeapi.Core.Op.HASH -> "return $core::hash(static_cast<const uint8_t*>(p0), p1);"
+            }
+            return "$head $body }"
+        }
+
+        fun thunk(m: Method): String = if (m.customId == null) plainThunk(m)
+        else (nativeShapes.firstOrNull { it.handles(m.customId!!, "cpp") }
+            ?: error("no NativeShape for id '${m.customId}' (cpp)")).emitThunk(m, "cpp")
+
+        val sb = StringBuilder()
+        sb.appendLine("// Generated from @NativeApi by NativeApiProcessor. Do not edit.")
+        sb.appendLine("#include <jni.h>")
+        sb.appendLine("#include <cstddef>")
+        sb.appendLine("#include <cstdint>")
+        sb.appendLine("#include \"${core.lowercase()}.hpp\"")
+        sb.appendLine()
+        sb.appendLine("extern \"C\" {")
+        cabi.forEach { sb.appendLine("${sig(it.cabi!!.value, it.ret, it.params, false)};") }
+        sb.appendLine("}").appendLine()
+        sb.appendLine("extern \"C\" {")
+        cabi.filter { it.core != null }.forEach { sb.appendLine(lifecycle(it)) }
+        sb.appendLine("}").appendLine()
+        sb.appendLine("namespace {")
+        jni.forEach { sb.appendLine(thunk(it)) }
+        sb.appendLine()
+        sb.appendLine("    const char* kHolderClass = \"$holder\";")
+        sb.appendLine("    const JNINativeMethod kRegistrations[] = {")
+        jni.forEach { sb.appendLine("        {const_cast<char*>(\"${it.name}\"), const_cast<char*>(\"${it.jniSig()}\"), reinterpret_cast<void*>(${it.jni!!.thunk})},") }
+        sb.appendLine("    };")
+        sb.appendLine("} // namespace").appendLine()
+        sb.appendLine("extern \"C\" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {")
+        sb.appendLine("    JNIEnv* env = nullptr;")
+        sb.appendLine("    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_24) != JNI_OK) return -1;")
+        sb.appendLine("    jclass cls = env->FindClass(kHolderClass);")
+        sb.appendLine("    if (!cls) return -1;")
+        sb.appendLine("    if (env->RegisterNatives(cls, kRegistrations, sizeof(kRegistrations) / sizeof(kRegistrations[0])) < 0) return -1;")
+        sb.appendLine("    return JNI_VERSION_24;")
+        sb.appendLine("}")
+
+        val out = Path.of(path)
+        out.parent?.let { Files.createDirectories(it) }
+        Files.writeString(out, sb.toString())
+        logger.warn("wrote C++ native: $out")
     }
 
     private fun writeBindings(pkg: String, common: List<Method>) = write(
