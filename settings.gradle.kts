@@ -6,3 +6,4 @@ rootProject.name = "jni-template"
 
 include("annotations", "processor", "nativegen-runtime", "nativegen-spi", "fnv-plugin")
 include("native:cpp", "native:rust")
+include("examples:mathops", "examples:buffer")
