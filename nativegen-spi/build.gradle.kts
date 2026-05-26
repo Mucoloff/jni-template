@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.3.20"
+    id("maven-publish")
 }
 
 kotlin {
@@ -9,6 +10,12 @@ kotlin {
 dependencies {
     // The IR exposes the annotation instances (@Jni/@Cabi/...) it was parsed from.
     api(project(":annotations"))
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") { from(components["java"]) }
+    }
 }
 
 // Stable intermediate representation + extension SPI shared between the core

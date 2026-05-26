@@ -1,0 +1,8 @@
+# JitPack build config. The Gradle toolchain (foojay resolver) provisions JDK 25 for
+# compilation; JitPack only needs a JDK to launch Gradle. Publishes the framework
+# modules to the local Maven repo, which JitPack serves as
+# com.github.Mucoloff.jni-ffm-api:<module>:<tag>.
+jdk:
+  - openjdk17
+install:
+  - ./gradlew publishToMavenLocal --no-parallel -x test

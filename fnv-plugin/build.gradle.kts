@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.3.20"
+    id("maven-publish")
 }
 
 kotlin {
@@ -8,6 +9,12 @@ kotlin {
 
 dependencies {
     implementation(project(":nativegen-spi"))
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") { from(components["java"]) }
+    }
 }
 
 // Example plugin: contributes the FNV-specific engine marshalling strategies
