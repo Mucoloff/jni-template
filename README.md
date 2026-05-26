@@ -1,100 +1,107 @@
-# jni-template
+# nativegen
 
-A small, reusable **library for calling native code from the JVM** through **one
-API that runs on either binding** — classic **JNI** or the modern **Foreign
-Function & Memory API (FFM / Panama)** — against either of two native backends
-(**C++** and **Rust**). It ships the low-overhead patterns you actually want when
-crossing into native code, plus JMH benchmarks that measure the trade-offs.
+A small **framework for calling native code from the JVM** that generates the binding
+boilerplate — both sides of the boundary — from **one annotated interface**:
 
-The example workload is **FNV-1a 64-bit hashing** (dependency-free, CPU-bound) plus
-a memory-bound `transform`. Swap the native core for your own logic; keep the wiring.
+- **JVM side**: JNI bindings *and* FFM (Panama) bindings, in Java/Kotlin.
+- **Native side**: the JNI thunks, the `RegisterNatives` table + `JNI_OnLoad`, and (by
+  convention) the flat C-ABI lifecycle, in **C++ and Rust**.
 
-## One API, two bindings, two backends
+You declare the native surface once; the framework generates the marshalling boundary for
+both bindings and both languages. **You write only the native algorithm** — the framework
+never generates that (the body *is* your logic).
+
+It's a framework, not a template: the core processor knows nothing about any specific API.
+Project-specific marshalling shapes plug in via an SPI. The repo ships three independent
+example specs proving exactly that.
+
+## Modules
+
+| Module | Role |
+|---|---|
+| `:annotations` | the spec annotations — `@NativeApi`, `@Jni`, `@Cabi`, `@Ptr`, `@Marshal`, `@Strategy`, `@Engine`, `@Core` |
+| `:nativegen-spi` | stable IR (`NativeMethod`/`NativeType`) + extension SPI (`MarshalStrategy`) |
+| `:processor` | the KSP processor: spec → JVM bindings + native descriptor; discovers plugins via `ServiceLoader` |
+| `:nativegen-runtime` | runtime support: `Binding`, `Backend`, `NativeLib`, `pool/*`, `mem/*` |
+| `:fnv-plugin` | example plugin: the `"heap"` / `"batch"` engine strategies |
+| `:examples:hash` | full runnable demo — FNV-1a over JNI×FFM × C++×Rust |
+| `:examples:mathops`, `:examples:buffer` | further specs proving the codegen generalizes |
+| `:native:cpp`, `:native:rust` | the hash example's native cores + generated boundary |
+
+## How it works
+
+Declare the native surface at the `MemorySegment`/primitive level on a `@NativeApi`
+interface. `@Ptr` marks a pointer (→ `long` address under JNI, `ADDRESS` under FFM);
+`@Jni(thunk=…)` names the JNI symbol; `@Cabi(…)` names the flat C-ABI symbol used by FFM.
 
 ```java
-HashEngine e = HashEngine.of(Binding.FFM, Backend.RUST); // or JNI / CPP
-long h = e.hash(segment, len);          // zero-copy over a MemorySegment
-try (HashSession s = e.open()) {        // pooled streaming digest
-    s.update(segment, len);
-    long d = s.digest();
+@NativeApi
+interface MathNative {
+    @Jni(thunk = "jni_add") @Cabi("nat_add") long add(long a, long b);
+    @Jni(thunk = "jni_fill") @Cabi("nat_fill") void fill(@Ptr MemorySegment buf, long len, byte v);
 }
-long[] hs = e.hashBatch(segs, lens);    // one crossing for N payloads
-e.transform(segment, len, (byte) 1);    // memory-bound, in-place
 ```
 
-- **JNI binding** (`dev.sweety.jni`): native methods bound via **RegisterNatives** in
-  `JNI_OnLoad` (no name-based lookup). Zero-copy paths pass a `MemorySegment`'s native
-  address as a `long`. Includes a `GetPrimitiveArrayCritical` path for heap `byte[]`.
-- **FFM binding** (`dev.sweety.ffm`): the library is linked by file path; each C-ABI
-  symbol becomes a cached `MethodHandle` invoked with `invokeExact`. No JNI stubs.
+The KSP processor generates, from that alone:
 
-Both bindings call the **same flat C-ABI core** exported by each native lib
-(`nat_fnv_*`, `nat_transform`), so C++ and Rust stay bit-identical and reusable from
-either binding.
+- **JVM**: `RawNatives` + per-backend holders (`CppNatives`/`RustNatives`), `JniBindings`
+  (segment↔address glue), `FfmBindings` (cached downcall handles + `invokeExact`), and a
+  JSON descriptor `build/generated/native-api.json`.
+- **Native** (consuming the descriptor): the `jni_*` thunks (which route through the
+  C-ABI), the `RegisterNatives` table + `JNI_OnLoad`, and — for methods marked `@Core` — the
+  flat C-ABI lifecycle bodies, in **both C++ and Rust**. Hand-written: the algorithm core
+  and any loop C-ABI (e.g. `transform`, `batch`).
 
-## Overhead / GC reduction toolkit
+Signatures are validated at compile time (`@Ptr` only on `MemorySegment`; FFM methods take
+no arrays).
 
-| Technique | Where | Purpose |
-|---|---|---|
-| Buffer/segment pool | `dev.sweety.mem.SegmentPool` | reuse off-heap memory; no malloc/free or GC garbage per call |
-| Object pooling | `HashSession` via `dev.sweety.pool.ObjectPool` | recycle native handles + wrappers instead of create/destroy |
-| RegisterNatives | native `JNI_OnLoad` | explicit binding, no per-call name resolution |
-| Critical array access | `JniHashEngine#hashCritical` | zero-copy heap `byte[]` (with GC-pin caveat) |
-| Batch API | `hashBatch` | amortize the crossing across N payloads |
+### Ergonomic layer (optional, `@Engine`)
 
-`ObjectPool` (thread-local / shared) and the `@Acquire/@Release/@Borrows/@Pooled`
-ownership annotations mirror `dev.sweety.math.pool` / `dev.sweety.data.buffer`, copied
-in so the template stays self-contained.
+`@Engine` additionally generates a public engine: a generic base (`DIRECT` 1:1 delegates +
+a pooled `SESSION`), the concrete per-binding impls, and an `EngineFactory`. See
+`:examples:hash` (`HashEngine`/`HashSession`).
 
-## Build, run, benchmark
+### Extending: custom marshalling (`@Strategy` + SPI)
 
-Prerequisites: **JDK 25**, **CMake** + a C++ toolchain, **Rust/cargo** (optional — the
-Rust backend is skipped if cargo is absent; the Gradle toolchain auto-provisions the JDK
-via the foojay resolver).
+The core handles only the generic `@Marshal` strategies (`DIRECT`, `SESSION_*`). For a
+project-specific argument shape, tag the method `@Strategy(id = "…")` and implement
+`dev.sweety.nativegen.spi.MarshalStrategy` in a module on the `ksp(…)` classpath, registered
+via `META-INF/services`. The processor looks it up by id — **no core change**. `:fnv-plugin`
+does this for `"heap"` (byte[] convenience) and `"batch"`.
+
+## Use it for a new project
+
+1. Add a `@NativeApi` interface declaring your native functions (`@Jni`/`@Cabi`/`@Ptr`).
+2. Depend on `:annotations` + `:nativegen-runtime`, and `ksp(:processor)` (+ any strategy
+   plugin). Pass `ksp { arg("native.descriptor", …) }` if you want the native descriptor.
+3. Write your native core + C-ABI; the JNI thunks/registration regenerate from the spec.
+4. Optionally add `@Engine` for an ergonomic API, and `@Strategy` + a plugin for custom shapes.
+
+`:examples:mathops` and `:examples:buffer` are minimal specs that generate JNI+FFM bindings
+with **zero** processor changes — copy one as a starting point.
+
+## Build & run
+
+Prerequisites: **JDK 25**, **CMake** + a C++ toolchain, optional **Rust/cargo** (its backend
+is skipped if cargo is absent).
 
 ```sh
-./gradlew run     # exercises every available Binding x Backend, asserts parity
-./gradlew test    # JUnit parity check across bindings/backends
-./gradlew jmh      # full benchmark suite
-./gradlew jmh -Pjmh.includes=CrossingBench   # one benchmark
+./gradlew build --no-parallel              # whole project (see note)
+./gradlew :examples:hash:run               # every available Binding x Backend, asserts parity
+./gradlew :examples:hash:run -Djni.backend=rust
+./gradlew :examples:hash:test              # JUnit parity check
+./gradlew :examples:hash:jmh -PjmhInclude=CrossingBench
 ```
 
-Benchmarks (`src/jmh/java/dev/sweety/bench/`): `CrossingBench` (per-call overhead),
-`ThroughputBench` (large payload), `BatchBench` (batch vs loop), `ArrayAccessBench`
-(copy vs critical vs segment), `AllocBench` (pooled vs fresh arena; run with `-prof gc`).
+> Note: build with `--no-parallel` — KSP2's analysis-API worker can clash when many `ksp`
+> tasks run concurrently.
 
-## Code generation (single source of truth)
+## Status / boundaries
 
-The native surface is declared **once** at the `MemorySegment` level on the
-`@NativeApi` interface `dev.sweety.jni.FnvNative`, with `@Ptr` marking pointer
-params/returns and `@Cabi("…")` naming the FFM symbol. A Java annotation processor
-(`:processor`, annotations in `:annotations`) lowers each method twice — JNI
-(`@Ptr MemorySegment` → `long` address) and FFM (`@Ptr` → `ADDRESS`) — and
-generates **all** the binding plumbing:
-
-- `RawNatives` (lowered JNI interface) + the holder classes `CppNatives` /
-  `RustNatives` (`native` decls + loader);
-- `JniBindings` — the segment↔address glue (`segment.address()`) over a holder;
-- `FfmBindings` — cached downcall handles + `FunctionDescriptor`s + `invokeExact`
-  wrappers for every `@Cabi` method;
-- a JSON descriptor `build/generated/native-api.json`.
-
-The C++ build (`genCppRegistrations` Gradle task) and the Rust build (`build.rs`)
-turn that descriptor into their `RegisterNatives` tables, so the name + signature
-+ fn-ptr triples are never hand-written and **cannot drift** between languages
-(the bug class that once broke the Rust backend). The hand-written engines
-(`JniHashEngine`, `FfmHashEngine`) keep only the ergonomic bits: `byte[]`
-convenience, batch marshalling, pooled sessions. JNI signatures are validated at
-compile time (e.g. `@Ptr` only on `MemorySegment`, no arrays in FFM methods).
-
-To add a native op: declare it on `FnvNative` (`@Jni(thunk=…)` and/or `@Cabi(…)`),
-then write only the `jni_…` thunk body (C++ + Rust) and/or the `nat_…` C-ABI body.
-Holders, JNI tables, FFM handles, and signatures regenerate automatically.
-
-## Adapting
-
-1. Replace the FNV core (`native/cpp/include/fnv.hpp`, `native/rust/src/fnv.rs`) and the
-   C-ABI surface (`cabi.cpp` / `cabi.rs`).
-2. Mirror the new symbols in the JNI bridge (`jni_hashengine.*`, the RegisterNatives
-   table) and the FFM `MethodHandle`s (`FfmHashEngine`).
-3. Update the `HashEngine` interface to your operations; keep `ObjectPool` / `SegmentPool`.
+- The framework generates the **boundary** (JVM bindings + JNI thunks + registration +
+  C-ABI lifecycle). It does **not** generate the native algorithm — that's yours.
+- Native code generation currently lives in the native build scripts (`:native:cpp`
+  `genCppNative`, `:native:rust` `build.rs`) driven by the descriptor; making it pluggable
+  via a `NativeEmitter` SPI (like `MarshalStrategy`) is the next step.
+- `mathops`/`buffer` demonstrate binding generation + compilation; running them would need
+  their own native libs (per-example native build is future work).
