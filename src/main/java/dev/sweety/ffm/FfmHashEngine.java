@@ -3,6 +3,7 @@ package dev.sweety.ffm;
 import dev.sweety.Backend;
 import dev.sweety.jni.FfmHashEngineBase;
 import dev.sweety.mem.NativeArena;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -23,14 +24,14 @@ public final class FfmHashEngine extends FfmHashEngineBase {
     }
 
     @Override
-    public long hash(byte[] data) {
+    public long hash(byte @NotNull [] data) {
         try (Arena a = Arena.ofConfined()) {
-            return b.hash(NativeArena.copyOf(a, data), data.length);
+            return bindings.hash(NativeArena.copyOf(a, data), data.length);
         }
     }
 
     @Override
-    public long[] hashBatch(MemorySegment[] data, long[] lens) {
+    public long @NotNull [] hashBatch(@NotNull MemorySegment[] data, long @NotNull [] lens) {
         int n = data.length;
         try (Arena a = Arena.ofConfined()) {
             MemorySegment ptrs = a.allocate(ADDRESS.byteSize() * n);
@@ -40,7 +41,7 @@ public final class FfmHashEngine extends FfmHashEngineBase {
                 ptrs.setAtIndex(ADDRESS, i, data[i]);
                 lensSeg.setAtIndex(JAVA_LONG, i, lens[i]);
             }
-            b.hashBatchRaw(ptrs, lensSeg, out, n);
+            bindings.hashBatchRaw(ptrs, lensSeg, out, n);
             long[] result = new long[n];
             for (int i = 0; i < n; i++) result[i] = out.getAtIndex(JAVA_LONG, i);
             return result;

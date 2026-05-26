@@ -1,6 +1,7 @@
 package dev.sweety.jni;
 
 import dev.sweety.Backend;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.foreign.MemorySegment;
 
@@ -17,19 +18,19 @@ public final class JniHashEngine extends JniHashEngineBase {
     }
 
     @Override
-    public long hash(byte[] data) {
-        return b.hashArray(data);
+    public long hash(byte @NotNull [] data) {
+        return bindings.hashArray(data);
     }
 
     /** Hashes a heap array without copying, via GetPrimitiveArrayCritical. */
-    public long hashCritical(byte[] data) {
-        return b.hashArrayCritical(data);
+    public long hashCritical(byte @NotNull [] data) {
+        return bindings.hashArrayCritical(data);
     }
 
     @Override
-    public long[] hashBatch(MemorySegment[] data, long[] lens) {
+    public long @NotNull [] hashBatch(@NotNull MemorySegment[] data, long @NotNull [] lens) {
         long[] addrs = new long[data.length];
         for (int i = 0; i < data.length; i++) addrs[i] = data[i].address();
-        return b.hashBatch(addrs, lens);
+        return bindings.hashBatch(addrs, lens);
     }
 }
