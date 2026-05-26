@@ -2,6 +2,7 @@ package dev.sweety.bench;
 
 import dev.sweety.Backend;
 import dev.sweety.jni.JniHashEngine;
+import dev.sweety.mem.NativeArena;
 import org.openjdk.jmh.annotations.*;
 
 import java.lang.foreign.Arena;
@@ -35,11 +36,12 @@ public class ArrayAccessBench {
     @Setup
     public void setup() {
         engine = new JniHashEngine(backend);
-        heap = new byte[size];
+        final int finalSize = size;
+        heap = new byte[finalSize];
         new Random(42).nextBytes(heap);
         arena = Arena.ofConfined();
-        seg = arena.allocate(size);
-        MemorySegment.copy(heap, 0, seg, ValueLayout.JAVA_BYTE, 0, size);
+        seg = arena.allocate(finalSize);
+        NativeArena.fill(seg, heap);
     }
 
     @TearDown

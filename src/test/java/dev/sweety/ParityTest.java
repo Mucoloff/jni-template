@@ -1,5 +1,6 @@
 package dev.sweety;
 
+import dev.sweety.mem.NativeArena;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
@@ -45,7 +46,7 @@ class ParityTest {
         assertEquals(EXPECTED, e.hash(MSG), tag + " array");
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = arena.allocate(MSG.length);
-            MemorySegment.copy(MSG, 0, seg, ValueLayout.JAVA_BYTE, 0, MSG.length);
+            NativeArena.fill(seg, MSG);
 
             assertEquals(EXPECTED, e.hash(seg, MSG.length), tag + " segment");
             assertEquals(EXPECTED, e.hashBatch(new MemorySegment[]{seg}, new long[]{MSG.length})[0], tag + " batch");

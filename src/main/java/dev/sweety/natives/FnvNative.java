@@ -1,4 +1,4 @@
-package dev.sweety.jni;
+package dev.sweety.natives;
 
 import dev.sweety.nativeapi.Cabi;
 import dev.sweety.nativeapi.Engine;

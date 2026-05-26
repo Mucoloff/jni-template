@@ -112,19 +112,27 @@ class NativeApiProcessor(
             })
     )
 
-    private fun writeJniBindings(pkg: String, names: List<String>, enums: List<String>, jni: List<Method>, engine: Boolean) {
+    private fun writeJniBindings(
+        pkg: String,
+        names: List<String>,
+        enums: List<String>,
+        jni: List<Method>,
+        engine: Boolean
+    ) {
         val cases = names.indices.joinToString("\n") {
             "            case ${enums[it]} -> ${names[it]}Natives.get();"
         }
-        write(pkg, "JniBindings", "java", JNI_BINDINGS
-            .replace("%pkg%", pkg)
-            .replace("%impl%", if (engine) " implements Bindings" else "")
-            .replace("%cases%", cases)
-            .replace("%wrappers%", join(jni) {
-                "    public ${it.segmentReturn()} ${it.name}(${it.segmentParams()}) {\n" +
-                    "        ${jniBody(it)}\n" +
-                    "    }"
-            }))
+        write(
+            pkg, "JniBindings", "java", JNI_BINDINGS
+                .replace("%pkg%", pkg)
+                .replace("%impl%", if (engine) " implements Bindings" else "")
+                .replace("%cases%", cases)
+                .replace("%wrappers%", join(jni) {
+                    "    public ${it.segmentReturn()} ${it.name}(${it.segmentParams()}) {\n" +
+                            "        ${jniBody(it)}\n" +
+                            "    }"
+                })
+        )
     }
 
     private fun writeFfmBindings(pkg: String, ffm: List<Method>, engine: Boolean) = write(
@@ -137,12 +145,12 @@ class NativeApiProcessor(
             })
             .replace("%wrappers%", join(ffm) {
                 "    public ${it.segmentReturn()} ${it.name}(${it.segmentParams()}) {\n" +
-                    "        try {\n" +
-                    "            ${ffmCall(it)}\n" +
-                    "        } catch (Throwable t) {\n" +
-                    "            throw wrap(t);\n" +
-                    "        }\n" +
-                    "    }"
+                        "        try {\n" +
+                        "            ${ffmCall(it)}\n" +
+                        "        } catch (Throwable t) {\n" +
+                        "            throw wrap(t);\n" +
+                        "        }\n" +
+                        "    }"
             })
     )
 
@@ -184,30 +192,34 @@ class NativeApiProcessor(
 
         val directMethods = join(direct) {
             "    @Override public ${it.segmentReturn()} ${it.name}(${it.engineParams()}) {\n" +
-                "        ${if (it.ret == Kind.VOID) "" else "return "}bindings.${it.name}(${it.segmentArgs()});\n" +
-                "    }"
+                    "        ${if (it.ret == Kind.VOID) "" else "return "}bindings.${it.name}(${it.segmentArgs()});\n" +
+                    "    }"
         }
         val sessionMethods = listOf(
-            Marshal.Strategy.SESSION_UPDATE, Marshal.Strategy.SESSION_DIGEST, Marshal.Strategy.SESSION_RESET
+            Marshal.Strategy.SESSION_UPDATE,
+            Marshal.Strategy.SESSION_DIGEST,
+            Marshal.Strategy.SESSION_RESET
         ).mapNotNull { roles[it] }.joinToString("\n") {
             "        @Override public ${it.segmentReturn()} ${it.name}(${it.sessionEngineParams()}) {\n" +
-                "            ${if (it.ret == Kind.VOID) "" else "return "}bindings.${it.name}(${it.sessionArgs()});\n" +
-                "        }"
+                    "            ${if (it.ret == Kind.VOID) "" else "return "}bindings.${it.name}(${it.sessionArgs()});\n" +
+                    "        }"
         }
 
-        write(pkg, engine.baseSuffix, "java", ENGINE_BASE
-            .replace("%pkg%", pkg)
-            .replace("%iface%", engine.iface)
-            .replace("%session%", engine.session)
-            .replace("%ifaceName%", simpleName(engine.iface))
-            .replace("%sessionName%", simpleName(engine.session))
-            .replace("%base%", engine.baseSuffix)
-            .replace("%create%", create.name)
-            .replace("%reset%", reset.name)
-            .replace("%free%", free.name)
-            .replace("%poolSize%", engine.poolSize.toString())
-            .replace("%direct%", directMethods)
-            .replace("%sessionMethods%", sessionMethods))
+        write(
+            pkg, engine.baseSuffix, "java", ENGINE_BASE
+                .replace("%pkg%", pkg)
+                .replace("%iface%", engine.iface)
+                .replace("%session%", engine.session)
+                .replace("%ifaceName%", simpleName(engine.iface))
+                .replace("%sessionName%", simpleName(engine.session))
+                .replace("%base%", engine.baseSuffix)
+                .replace("%create%", create.name)
+                .replace("%reset%", reset.name)
+                .replace("%free%", free.name)
+                .replace("%poolSize%", engine.poolSize.toString())
+                .replace("%direct%", directMethods)
+                .replace("%sessionMethods%", sessionMethods)
+        )
     }
 
     private fun writeEngineImpl(pkg: String, engine: Engine, methods: List<Method>, jni: Boolean) {
@@ -228,39 +240,43 @@ class NativeApiProcessor(
             }
         }.trimEnd()
 
-        write(packageOf(implFqn), simpleName(implFqn), "java", (if (jni) JNI_ENGINE else FFM_ENGINE)
-            .replace("%pkg%", packageOf(implFqn))
-            .replace("%cls%", simpleName(implFqn))
-            .replace("%baseFqn%", "$pkg.${engine.baseSuffix}")
-            .replace("%bindingsFqn%", "$pkg.$bindings")
-            .replace("%heap%", heap)
-            .replace("%batch%", if (jni) batchJni(methods) else batchFfm(methods)))
+        write(
+            packageOf(implFqn), simpleName(implFqn), "java", (if (jni) JNI_ENGINE else FFM_ENGINE)
+                .replace("%pkg%", packageOf(implFqn))
+                .replace("%cls%", simpleName(implFqn))
+                .replace("%baseFqn%", "$pkg.${engine.baseSuffix}")
+                .replace("%bindingsFqn%", "$pkg.$bindings")
+                .replace("%heap%", heap)
+                .replace("%batch%", if (jni) batchJni(methods) else batchFfm(methods))
+        )
     }
 
     private fun writeEngineFactory(engine: Engine) {
         val pkg = packageOf(engine.iface)
-        write(pkg, "EngineFactory", "java", ENGINE_FACTORY
-            .replace("%pkg%", pkg)
-            .replace("%iface%", simpleName(engine.iface))
-            .replace("%jniFqn%", engine.jniImpl)
-            .replace("%ffmFqn%", engine.ffmImpl))
+        write(
+            pkg, "EngineFactory", "java", ENGINE_FACTORY
+                .replace("%pkg%", pkg)
+                .replace("%iface%", simpleName(engine.iface))
+                .replace("%jniFqn%", engine.jniImpl)
+                .replace("%ffmFqn%", engine.ffmImpl)
+        )
     }
 
     private fun heapJni(m: Method) =
         (if (m.ifaceMethod) "    @Override\n" else "") +
-            "    public ${m.segmentReturn()} ${m.engineName}(byte @NotNull [] data) {\n" +
-            "        return bindings.${m.name}(data);\n" +
-            "    }"
+                "    public ${m.segmentReturn()} ${m.engineName}(byte @NotNull [] data) {\n" +
+                "        return bindings.${m.name}(data);\n" +
+                "    }"
 
     private fun heapFfm(m: Method, methods: List<Method>): String {
         val direct = methods.firstOrNull { it.strategy == Marshal.Strategy.DIRECT && it.name == m.engineName }
             ?: error("HEAP_HASH engine '${m.engineName}' needs a DIRECT method of that name")
         return "    @Override\n" +
-            "    public ${m.segmentReturn()} ${m.engineName}(byte @NotNull [] data) {\n" +
-            "        try (Arena a = Arena.ofConfined()) {\n" +
-            "            return bindings.${direct.name}(NativeArena.copyOf(a, data), data.length);\n" +
-            "        }\n" +
-            "    }"
+                "    public ${m.segmentReturn()} ${m.engineName}(byte @NotNull [] data) {\n" +
+                "        try (Arena a = Arena.ofConfined()) {\n" +
+                "            return bindings.${direct.name}(NativeArena.copyOf(a, data), data.length);\n" +
+                "        }\n" +
+                "    }"
     }
 
     private fun batch(methods: List<Method>, jniForm: Boolean) = methods.first {
@@ -270,32 +286,32 @@ class NativeApiProcessor(
     private fun batchJni(methods: List<Method>): String {
         val b = batch(methods, true)
         return "    @Override\n" +
-            "    public long @NotNull [] ${b.engineName}(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {\n" +
-            "        long[] addrs = new long[data.length];\n" +
-            "        for (int i = 0; i < data.length; i++) addrs[i] = data[i].address();\n" +
-            "        return bindings.${b.name}(addrs, lens);\n" +
-            "    }"
+                "    public long @NotNull [] ${b.engineName}(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {\n" +
+                "        long[] addrs = new long[data.length];\n" +
+                "        for (int i = 0; i < data.length; i++) addrs[i] = data[i].address();\n" +
+                "        return bindings.${b.name}(addrs, lens);\n" +
+                "    }"
     }
 
     private fun batchFfm(methods: List<Method>): String {
         val b = batch(methods, false)
         return "    @Override\n" +
-            "    public long @NotNull [] ${b.engineName}(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {\n" +
-            "        int n = data.length;\n" +
-            "        try (Arena a = Arena.ofConfined()) {\n" +
-            "            MemorySegment ptrs = a.allocate(ADDRESS.byteSize() * n);\n" +
-            "            MemorySegment lensSeg = a.allocate(JAVA_LONG.byteSize() * n);\n" +
-            "            MemorySegment out = a.allocate(JAVA_LONG.byteSize() * n);\n" +
-            "            for (int i = 0; i < n; i++) {\n" +
-            "                ptrs.setAtIndex(ADDRESS, i, data[i]);\n" +
-            "                lensSeg.setAtIndex(JAVA_LONG, i, lens[i]);\n" +
-            "            }\n" +
-            "            bindings.${b.name}(ptrs, lensSeg, out, n);\n" +
-            "            long[] result = new long[n];\n" +
-            "            for (int i = 0; i < n; i++) result[i] = out.getAtIndex(JAVA_LONG, i);\n" +
-            "            return result;\n" +
-            "        }\n" +
-            "    }"
+                "    public long @NotNull [] ${b.engineName}(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {\n" +
+                "        int n = data.length;\n" +
+                "        try (Arena a = Arena.ofConfined()) {\n" +
+                "            MemorySegment ptrs = a.allocate(ADDRESS.byteSize() * n);\n" +
+                "            MemorySegment lensSeg = a.allocate(JAVA_LONG.byteSize() * n);\n" +
+                "            MemorySegment out = a.allocate(JAVA_LONG.byteSize() * n);\n" +
+                "            for (int i = 0; i < n; i++) {\n" +
+                "                ptrs.setAtIndex(ADDRESS, i, data[i]);\n" +
+                "                lensSeg.setAtIndex(JAVA_LONG, i, lens[i]);\n" +
+                "            }\n" +
+                "            bindings.${b.name}(ptrs, lensSeg, out, n);\n" +
+                "            long[] result = new long[n];\n" +
+                "            for (int i = 0; i < n; i++) result[i] = out.getAtIndex(JAVA_LONG, i);\n" +
+                "            return result;\n" +
+                "        }\n" +
+                "    }"
     }
 
     private fun jniBody(m: Method): String {
@@ -342,7 +358,10 @@ class NativeApiProcessor(
         val ifaceMethod = marshal?.iface ?: true
 
         if (cabi != null) {
-            if (params.any { it.isArray }) logger.error("@Cabi method cannot take arrays (FFM is pointer-based): $name", fn)
+            if (params.any { it.isArray }) logger.error(
+                "@Cabi method cannot take arrays (FFM is pointer-based): $name",
+                fn
+            )
             if (ret.isArray) logger.error("@Cabi method cannot return an array: $name", fn)
         }
         return Method(name, ret, params, jni, cabi, marshal?.value, engineName, ifaceMethod)
@@ -364,6 +383,7 @@ class NativeApiProcessor(
             SEGMENT -> {
                 logger.error("MemorySegment parameter/return must be annotated @Ptr", where); Kind.PTR
             }
+
             else -> {
                 logger.error("unsupported type: $qn", where); Kind.LONG
             }
@@ -401,7 +421,7 @@ class NativeApiProcessor(
         }
     }
 
-    private inner class Method(
+    private class Method(
         val name: String,
         val ret: Kind,
         val params: List<Kind>,
@@ -581,22 +601,34 @@ class NativeApiProcessor(
                     this.binding = binding;
                     this.sessions = ObjectPool.threadLocal(
                             () -> new Session(bindings.%create%()),
-                            s -> bindings.%reset%(s.state),
-                            s -> bindings.%free%(s.state),
+                            Session::%reset%,
+                            Session::%free%,
                             %poolSize%);
                 }
 
             %direct%
 
-                @Override public @NotNull %sessionName% open() { return sessions.acquire(); }
-                @Override public @NotNull Backend backend() { return backend; }
-                @Override public @NotNull Binding binding() { return binding; }
+                @Override public @NotNull %sessionName% open() {
+                    return sessions.acquire();
+                }
+                
+                @Override public @NotNull Backend backend() {
+                    return backend;
+                }
+                
+                @Override public @NotNull Binding binding() {
+                    return binding;
+                }
 
                 final class Session implements %sessionName% {
                     final MemorySegment state;
                     Session(MemorySegment state) { this.state = state; }
             %sessionMethods%
                     @Override public void close() { sessions.release(this); }
+                    
+                    public void free() {
+                        bindings.free(state);
+                    }
                 }
             }
             """.trimIndent() + "\n"

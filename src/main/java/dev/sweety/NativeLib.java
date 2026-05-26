@@ -4,11 +4,11 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.EnumMap;
-import java.util.Map;
+import java.util.EnumSet;
+import java.util.Set;
 
 public final class NativeLib {
-    private static final Map<Backend, Boolean> jniLoaded = new EnumMap<>(Backend.class);
+    private static final Set<Backend> loaded = EnumSet.noneOf(Backend.class);
 
     private NativeLib() {
     }
@@ -18,9 +18,9 @@ public final class NativeLib {
      * Triggers RegisterNatives via the library's JNI_OnLoad.
      */
     public static synchronized void loadForJni(Backend backend) {
-        if (jniLoaded.getOrDefault(backend, false)) return;
+        if (loaded.contains(backend)) return;
         System.loadLibrary(backend.libName());
-        jniLoaded.put(backend, true);
+        loaded.add(backend);
     }
 
     /**

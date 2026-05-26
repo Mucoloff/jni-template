@@ -19,7 +19,7 @@ public final class NativeArena {
      */
     public static MemorySegment copyOf(Arena arena, byte[] data) {
         MemorySegment seg = arena.allocate(data.length);
-        MemorySegment.copy(data, 0, seg, ValueLayout.JAVA_BYTE, 0, data.length);
+        fill(seg, data);
         return seg;
     }
 
