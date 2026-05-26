@@ -10,13 +10,4 @@ abstract class NativegenExtension {
 
     /** Build the Rust backend (native/rust via Cargo). */
     var rust: Boolean = true
-
-    /**
-     * Maven group of the framework artifacts to depend on. Default = mavenLocal/Central coords;
-     * for JitPack set to "com.github.Mucoloff.jni-ffm-api" (JitPack rewrites the group).
-     */
-    var group: String = "dev.sweety.nativegen"
-
-    /** Version of the framework artifacts (a JitPack tag, e.g. "v0.1.1", or "0.1.1"). */
-    var version: String = "0.1.1"
 }

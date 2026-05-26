@@ -27,6 +27,16 @@ class NativegenPlugin : Plugin<Project> {
         repositories.mavenCentral()
         repositories.maven { setUrl("https://jitpack.io") }
 
+        // Framework coords. Read from project properties so they're known at apply() time and the
+        // deps can be added EAGERLY — KSP's onlyIf checks the `ksp` configuration during config,
+        // so a late (afterEvaluate) processor dep would make kspKotlin skip. Defaults = mavenLocal/
+        // Central; for JitPack set nativegen.group=com.github.Mucoloff.jni-ffm-api, nativegen.version=vX.
+        val fwGroup = (findProperty("nativegen.group") as String?) ?: "dev.sweety.nativegen"
+        val fwVersion = (findProperty("nativegen.version") as String?) ?: "0.1.2"
+        dependencies.add("implementation", "$fwGroup:annotations:$fwVersion")
+        dependencies.add("implementation", "$fwGroup:nativegen-runtime:$fwVersion")
+        dependencies.add("ksp", "$fwGroup:processor:$fwVersion")
+
         val cppDir = file("native/cpp")
         val cppBuildDir = file("native/cpp/cmake-build")
         val cppGen = file("native/cpp/generated/native.generated.cpp")
@@ -39,12 +49,6 @@ class NativegenPlugin : Plugin<Project> {
             .firstOrNull { File(it).exists() } ?: "cargo"
 
         afterEvaluate {
-            // In-repo these resolve to the sibling projects (matching group:name:version);
-            // externally they come from mavenLocal / JitPack (set nativegen.group/version).
-            dependencies.add("implementation", "${ext.group}:annotations:${ext.version}")
-            dependencies.add("implementation", "${ext.group}:nativegen-runtime:${ext.version}")
-            dependencies.add("ksp", "${ext.group}:processor:${ext.version}")
-
             val ksp = extensions.getByType(KspExtension::class.java)
             ksp.arg("native.descriptor", descriptor.absolutePath)
             if (ext.cpp) ksp.arg("native.cpp.out", cppGen.absolutePath)
