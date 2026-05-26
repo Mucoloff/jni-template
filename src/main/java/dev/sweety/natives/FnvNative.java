@@ -7,9 +7,10 @@ import dev.sweety.nativeapi.Jni;
 import dev.sweety.nativeapi.Marshal;
 import dev.sweety.nativeapi.NativeApi;
 import dev.sweety.nativeapi.Ptr;
+import dev.sweety.nativeapi.Strategy;
 
 import static dev.sweety.nativeapi.Core.Op.*;
-import static dev.sweety.nativeapi.Marshal.Strategy.*;
+import static dev.sweety.nativeapi.Marshal.Op.*;
 
 import java.lang.foreign.MemorySegment;
 
@@ -39,11 +40,11 @@ interface FnvNative {
 
     // --- JNI-only: heap byte[] (copy vs critical) --------------------------------
 
-    @Marshal(value = HEAP_HASH, engine = "hash")
+    @Strategy(id = "heap", engine = "hash", target = "nat_fnv_hash")
     @Jni(thunk = "jni_hash_array")
     long hashArray(byte[] data);
 
-    @Marshal(value = HEAP_HASH, engine = "hashCritical", iface = false)
+    @Strategy(id = "heap", engine = "hashCritical", iface = false, target = "nat_fnv_hash")
     @Jni(thunk = "jni_hash_array_crit", critical = true)
     long hashArrayCritical(byte[] data);
 
@@ -93,11 +94,11 @@ interface FnvNative {
 
     // --- batch: JNI takes arrays; FFM takes the raw C-ABI pointer form ------------
 
-    @Marshal(value = BATCH, engine = "hashBatch")
+    @Strategy(id = "batch", engine = "hashBatch", target = "nat_fnv_hash_batch")
     @Jni(thunk = "jni_hash_batch")
     long[] hashBatch(long[] addrs, long[] lens);
 
-    @Marshal(value = BATCH, engine = "hashBatch")
+    @Strategy(id = "batch", engine = "hashBatch", target = "nat_fnv_hash_batch")
     @Cabi("nat_fnv_hash_batch")
     void hashBatchRaw(@Ptr MemorySegment ptrs, @Ptr MemorySegment lens, @Ptr MemorySegment out, long n);
 }

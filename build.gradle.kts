@@ -28,6 +28,7 @@ dependencies {
     implementation(project(":annotations"))
     implementation(project(":nativegen-runtime"))
     ksp(project(":processor"))
+    ksp(project(":fnv-plugin"))
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")

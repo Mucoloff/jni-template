@@ -16,9 +16,14 @@ class NativeMethod(
     val params: List<NativeType>,
     val jni: Jni?,
     val cabi: Cabi?,
-    val strategy: Marshal.Strategy?,
+    /** Built-in generic engine strategy (DIRECT/SESSION_*), or null. */
+    val strategy: Marshal.Op?,
+    /** Custom plugin strategy id (from {@code @Strategy}), or null. */
+    val customId: String?,
     val engineName: String,
     val ifaceMethod: Boolean,
+    /** C-ABI symbol the JNI thunk routes to; null = the method's own @Cabi. */
+    val target: String?,
     val core: Core.Op?,
 ) {
     fun loweredReturn() = ret.loweredJava()

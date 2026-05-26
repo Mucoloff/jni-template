@@ -21,8 +21,11 @@ import dev.sweety.nativeapi.Jni
 import dev.sweety.nativeapi.Marshal
 import dev.sweety.nativeapi.NativeApi
 import dev.sweety.nativeapi.Ptr
+import dev.sweety.nativeapi.Strategy
+import dev.sweety.nativegen.spi.MarshalStrategy
 import dev.sweety.nativegen.spi.NativeMethod as Method
 import dev.sweety.nativegen.spi.NativeType as Kind
+import java.util.ServiceLoader
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -51,6 +54,13 @@ class NativeApiProcessor(
 ) : SymbolProcessor {
 
     private var done = false
+
+    /** Custom engine-layer strategies contributed by plugins on the KSP classpath. */
+    private val strategies: List<MarshalStrategy> =
+        ServiceLoader.load(MarshalStrategy::class.java, javaClass.classLoader).toList()
+
+    private fun strategyFor(id: String): MarshalStrategy =
+        strategies.firstOrNull { it.handles(id) } ?: error("no MarshalStrategy registered for id '$id'")
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
         if (done) return emptyList()
@@ -84,7 +94,7 @@ class NativeApiProcessor(
 
         if (engine != null) {
             val common = methods.filter {
-                it.strategy != null && it.jni != null && it.cabi != null && isEngineRole(it.strategy!!)
+                it.strategy != null && it.jni != null && it.cabi != null
             }
             writeBindings(pkg, common)
             writeEngineBase(pkg, engine, common)
@@ -93,9 +103,6 @@ class NativeApiProcessor(
             if (engine.jniImpl.isNotEmpty() && engine.ffmImpl.isNotEmpty()) writeEngineFactory(engine)
         }
     }
-
-    private fun isEngineRole(s: Marshal.Strategy) =
-        s != Marshal.Strategy.HEAP_HASH && s != Marshal.Strategy.BATCH
 
     // --- generation (text-block templates with %placeholder% substitution) -------
 
@@ -167,19 +174,11 @@ class NativeApiProcessor(
         val backends = names.indices.joinToString(",\n") {
             "    {\"name\": \"${names[it]}\", \"holder\": \"${holders[it]}\"}"
         }
-        // Each JNI thunk delegates to a flat C-ABI symbol; resolve it from the spec.
-        fun target(m: Method): String = m.cabi?.value ?: when (m.strategy) {
-            Marshal.Strategy.HEAP_HASH ->
-                all.first { it.core == Core.Op.HASH }.cabi!!.value
-            Marshal.Strategy.BATCH ->
-                all.first { it.strategy == Marshal.Strategy.BATCH && it.cabi != null }.cabi!!.value
-            else -> error("no C-ABI target for thunk ${m.name}")
-        }
-        fun shape(m: Method) = when (m.strategy) {
-            Marshal.Strategy.HEAP_HASH -> "heap"
-            Marshal.Strategy.BATCH -> "batch"
-            else -> "plain"
-        }
+        // Each JNI thunk delegates to a flat C-ABI symbol: its own @Cabi, or the @Strategy(target).
+        fun target(m: Method): String = m.cabi?.value ?: m.target
+            ?: error("no C-ABI target for thunk ${m.name} (set @Strategy(target=...))")
+        // The native shape is the custom strategy id (heap/batch/...), or plain.
+        fun shape(m: Method) = m.customId ?: "plain"
         fun kinds(m: Method) = m.params.joinToString(", ") { "\"${it.kindName()}\"" }
         val methods = join(jni, ",\n") {
             "    {\"name\": \"${it.name}\", \"sig\": \"${it.jniSig()}\", \"thunk\": \"${it.jni!!.thunk}\"" +
@@ -210,11 +209,11 @@ class NativeApiProcessor(
     )
 
     private fun writeEngineBase(pkg: String, engine: Engine, common: List<Method>) {
-        val roles = common.filter { it.strategy != Marshal.Strategy.DIRECT }.associateBy { it.strategy }
-        val direct = common.filter { it.strategy == Marshal.Strategy.DIRECT }
-        val create = roles[Marshal.Strategy.SESSION_CREATE]
-        val free = roles[Marshal.Strategy.SESSION_FREE]
-        val reset = roles[Marshal.Strategy.SESSION_RESET]
+        val roles = common.filter { it.strategy != Marshal.Op.DIRECT }.associateBy { it.strategy }
+        val direct = common.filter { it.strategy == Marshal.Op.DIRECT }
+        val create = roles[Marshal.Op.SESSION_CREATE]
+        val free = roles[Marshal.Op.SESSION_FREE]
+        val reset = roles[Marshal.Op.SESSION_RESET]
         if (create == null || free == null || reset == null) {
             logger.error("@Engine requires SESSION_CREATE/FREE/RESET methods")
             return
@@ -226,9 +225,9 @@ class NativeApiProcessor(
                     "    }"
         }
         val sessionMethods = listOf(
-            Marshal.Strategy.SESSION_UPDATE,
-            Marshal.Strategy.SESSION_DIGEST,
-            Marshal.Strategy.SESSION_RESET
+            Marshal.Op.SESSION_UPDATE,
+            Marshal.Op.SESSION_DIGEST,
+            Marshal.Op.SESSION_RESET
         ).mapNotNull { roles[it] }.joinToString("\n") {
             "        @Override public ${it.segmentReturn()} ${it.name}(${it.sessionEngineParams()}) {\n" +
                     "            ${if (it.ret == Kind.VOID) "" else "return "}bindings.${it.name}(${it.sessionArgs()});\n" +
@@ -255,20 +254,13 @@ class NativeApiProcessor(
     private fun writeEngineImpl(pkg: String, engine: Engine, methods: List<Method>, jni: Boolean) {
         val implFqn = if (jni) engine.jniImpl else engine.ffmImpl
         val bindings = if (jni) "JniBindings" else "FfmBindings"
+        val binding = if (jni) "jni" else "ffm"
 
-        val heap = buildString {
-            for (m in methods) {
-                if (m.strategy != Marshal.Strategy.HEAP_HASH) continue
-                if (jni) {
-                    if (m.jni == null) continue
-                    append(heapJni(m))
-                } else {
-                    if (!m.ifaceMethod) continue // FFM exposes only the interface heap method (copy path)
-                    append(heapFfm(m, methods))
-                }
-                append("\n\n")
-            }
-        }.trimEnd()
+        // Engine methods that need custom marshalling are emitted by plugin strategies
+        // (looked up by their @Strategy id) — the core knows no concrete shape.
+        val body = methods.filter { it.customId != null }
+            .mapNotNull { strategyFor(it.customId!!).emit(it, binding, methods) }
+            .joinToString("\n\n")
 
         write(
             packageOf(implFqn), simpleName(implFqn), "java", (if (jni) JNI_ENGINE else FFM_ENGINE)
@@ -276,8 +268,7 @@ class NativeApiProcessor(
                 .replace("%cls%", simpleName(implFqn))
                 .replace("%baseFqn%", "$pkg.${engine.baseSuffix}")
                 .replace("%bindingsFqn%", "$pkg.$bindings")
-                .replace("%heap%", heap)
-                .replace("%batch%", if (jni) batchJni(methods) else batchFfm(methods))
+                .replace("%methods%", body)
         )
     }
 
@@ -290,58 +281,6 @@ class NativeApiProcessor(
                 .replace("%jniFqn%", engine.jniImpl)
                 .replace("%ffmFqn%", engine.ffmImpl)
         )
-    }
-
-    private fun heapJni(m: Method) =
-        (if (m.ifaceMethod) "    @Override\n" else "") +
-                "    public ${m.segmentReturn()} ${m.engineName}(byte @NotNull [] data) {\n" +
-                "        return bindings.${m.name}(data);\n" +
-                "    }"
-
-    private fun heapFfm(m: Method, methods: List<Method>): String {
-        val direct = methods.firstOrNull { it.strategy == Marshal.Strategy.DIRECT && it.name == m.engineName }
-            ?: error("HEAP_HASH engine '${m.engineName}' needs a DIRECT method of that name")
-        return "    @Override\n" +
-                "    public ${m.segmentReturn()} ${m.engineName}(byte @NotNull [] data) {\n" +
-                "        try (Arena a = Arena.ofConfined()) {\n" +
-                "            return bindings.${direct.name}(NativeArena.copyOf(a, data), data.length);\n" +
-                "        }\n" +
-                "    }"
-    }
-
-    private fun batch(methods: List<Method>, jniForm: Boolean) = methods.first {
-        it.strategy == Marshal.Strategy.BATCH && (if (jniForm) it.jni != null else it.cabi != null)
-    }
-
-    private fun batchJni(methods: List<Method>): String {
-        val b = batch(methods, true)
-        return "    @Override\n" +
-                "    public long @NotNull [] ${b.engineName}(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {\n" +
-                "        long[] addrs = new long[data.length];\n" +
-                "        for (int i = 0; i < data.length; i++) addrs[i] = data[i].address();\n" +
-                "        return bindings.${b.name}(addrs, lens);\n" +
-                "    }"
-    }
-
-    private fun batchFfm(methods: List<Method>): String {
-        val b = batch(methods, false)
-        return "    @Override\n" +
-                "    public long @NotNull [] ${b.engineName}(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {\n" +
-                "        int n = data.length;\n" +
-                "        try (Arena a = Arena.ofConfined()) {\n" +
-                "            MemorySegment ptrs = a.allocate(ADDRESS.byteSize() * n);\n" +
-                "            MemorySegment lensSeg = a.allocate(JAVA_LONG.byteSize() * n);\n" +
-                "            MemorySegment out = a.allocate(JAVA_LONG.byteSize() * n);\n" +
-                "            for (int i = 0; i < n; i++) {\n" +
-                "                ptrs.setAtIndex(ADDRESS, i, data[i]);\n" +
-                "                lensSeg.setAtIndex(JAVA_LONG, i, lens[i]);\n" +
-                "            }\n" +
-                "            bindings.${b.name}(ptrs, lensSeg, out, n);\n" +
-                "            long[] result = new long[n];\n" +
-                "            for (int i = 0; i < n; i++) result[i] = out.getAtIndex(JAVA_LONG, i);\n" +
-                "            return result;\n" +
-                "        }\n" +
-                "    }"
     }
 
     private fun jniBody(m: Method): String {
@@ -383,9 +322,11 @@ class NativeApiProcessor(
         val params = fn.parameters.map { classify(it, it.type, it.getAnnotationsByType(Ptr::class).any()) }
 
         val marshal = fn.getAnnotationsByType(Marshal::class).firstOrNull()
+        val custom = fn.getAnnotationsByType(Strategy::class).firstOrNull()
         val name = fn.simpleName.asString()
-        val engineName = marshal?.engine?.ifEmpty { name } ?: name
-        val ifaceMethod = marshal?.iface ?: true
+        val engineName = custom?.engine?.ifEmpty { name } ?: name
+        val ifaceMethod = custom?.iface ?: true
+        val target = custom?.target?.ifEmpty { null }
 
         if (cabi != null) {
             if (params.any { it.isArray }) logger.error(
@@ -395,7 +336,7 @@ class NativeApiProcessor(
             if (ret.isArray) logger.error("@Cabi method cannot return an array: $name", fn)
         }
         val core = fn.getAnnotationsByType(Core::class).firstOrNull()?.value
-        return Method(name, ret, params, jni, cabi, marshal?.value, engineName, ifaceMethod, core)
+        return Method(name, ret, params, jni, cabi, marshal?.value, custom?.id, engineName, ifaceMethod, target, core)
     }
 
     private fun classify(where: KSAnnotated, type: KSTypeReference?, ptr: Boolean): Kind {
@@ -608,15 +549,14 @@ class NativeApiProcessor(
             import org.jetbrains.annotations.NotNull;
             import java.lang.foreign.MemorySegment;
 
-            // Generated by NativeApiProcessor. Do not edit. Full JNI engine impl (HEAP_HASH + BATCH).
+            // Generated by NativeApiProcessor. Do not edit. Concrete JNI engine impl; custom
+            // methods are emitted by plugin strategies (use fully-qualified names in bodies).
             public final class %cls% extends %baseFqn%<%bindingsFqn%> {
                 public %cls%(Backend backend) {
                     super(%bindingsFqn%.of(backend), backend, Binding.JNI);
                 }
 
-            %heap%
-
-            %batch%
+            %methods%
             }
             """.trimIndent() + "\n"
 
@@ -625,22 +565,17 @@ class NativeApiProcessor(
 
             import dev.sweety.Backend;
             import dev.sweety.Binding;
-            import dev.sweety.mem.NativeArena;
             import org.jetbrains.annotations.NotNull;
-            import java.lang.foreign.Arena;
             import java.lang.foreign.MemorySegment;
-            import static java.lang.foreign.ValueLayout.ADDRESS;
-            import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
-            // Generated by NativeApiProcessor. Do not edit. Full FFM engine impl (HEAP_HASH + BATCH).
+            // Generated by NativeApiProcessor. Do not edit. Concrete FFM engine impl; custom
+            // methods are emitted by plugin strategies (use fully-qualified names in bodies).
             public final class %cls% extends %baseFqn%<%bindingsFqn%> {
                 public %cls%(Backend backend) {
                     super(new %bindingsFqn%(backend), backend, Binding.FFM);
                 }
 
-            %heap%
-
-            %batch%
+            %methods%
             }
             """.trimIndent() + "\n"
 
