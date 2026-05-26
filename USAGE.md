@@ -33,8 +33,35 @@ dependencyResolutionManagement {
 }
 ```
 
-> JitPack: depend on `com.github.Mucoloff.jni-ffm-api:<module>:<tag>`; for the plugin add a
-> `resolutionStrategy.eachPlugin { if (requested.id.id == "dev.sweety.nativegen") useModule(...) }`.
+**Via JitPack (no local publish, verified):** JitPack builds the repo from a git tag and serves
+everything under the group `com.github.Mucoloff.jni-ffm-api`. Consumer `settings.gradle.kts`:
+
+```kotlin
+pluginManagement {
+    repositories { maven("https://jitpack.io"); gradlePluginPortal(); mavenCentral() }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "dev.sweety.nativegen")
+                useModule("com.github.Mucoloff.jni-ffm-api:build-logic:${requested.version}")
+        }
+    }
+}
+dependencyResolutionManagement {
+    repositories { mavenCentral(); maven("https://jitpack.io") }
+}
+```
+
+Then in `build.gradle.kts` use the tag as the plugin version, and point the framework coords at
+the JitPack group via `gradle.properties` (JitPack rewrites the group, so this is required):
+
+```kotlin
+plugins { id("dev.sweety.nativegen") version "v0.1.2" }
+```
+```properties
+# gradle.properties
+nativegen.group=com.github.Mucoloff.jni-ffm-api
+nativegen.version=v0.1.2
+```
 
 ## 2. Apply the plugin
 
