@@ -55,3 +55,4 @@ bin/
 native/cpp/generated/
 native/cpp/cmake-build/
 native/rust/target/
+native/rust/src/generated/

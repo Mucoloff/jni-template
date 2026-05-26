@@ -9,16 +9,16 @@ val cargoPath: String = listOf(
 ).firstOrNull { File(it).exists() } ?: "cargo"
 val cargoAvailable = File(cargoPath).exists()
 
-val descriptor = hash.layout.buildDirectory.file("generated/native-api.json")
+// The framework processor generates the whole Rust JNI surface into src/generated/
+// during :examples:hash:kspKotlin; cargo just compiles it (lib.rs include!s it).
+val generated = file("$projectDir/src/generated/native_generated.rs")
 
 tasks.register<Exec>("buildRust") {
     description = "Build the Rust native library"
-    dependsOn(":examples:hash:kspKotlin")  // produces the native-api.json descriptor
+    dependsOn(":examples:hash:kspKotlin")  // generates src/generated/native_generated.rs
     workingDir = projectDir
     commandLine(cargoPath, "build", "--release")
-    // build.rs turns the descriptor into the RegisterNatives array.
-    environment("NATIVE_DESCRIPTOR", descriptor.get().asFile.absolutePath)
-    inputs.file(descriptor)
+    inputs.file(generated)
     onlyIf {
         if (!cargoAvailable) {
             logger.warn("WARNING: cargo not found — skipping Rust build. Install Rust via https://rustup.rs/")

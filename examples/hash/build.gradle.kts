@@ -32,6 +32,7 @@ ksp {
     arg("native.descriptor", nativeDescriptor.absolutePath)
     // The processor also emits the C++ side here (the Rust side still comes from build.rs).
     arg("native.cpp.out", project(":native:cpp").file("generated/native.generated.cpp").absolutePath)
+    arg("native.rust.out", project(":native:rust").file("src/generated/native_generated.rs").absolutePath)
 }
 
 application {

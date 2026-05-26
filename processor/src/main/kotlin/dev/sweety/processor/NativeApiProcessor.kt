@@ -97,6 +97,7 @@ class NativeApiProcessor(
         writeFfmBindings(pkg, ffm, engine != null)
         writeDescriptor(names, holders, methods, api.coreType)
         options["native.cpp.out"]?.let { writeCppNative(it, names, holders, methods, api.coreType) }
+        options["native.rust.out"]?.let { writeRustNative(it, names, holders, methods, api.coreType) }
 
         if (engine != null) {
             val common = methods.filter {
@@ -300,6 +301,87 @@ class NativeApiProcessor(
         out.parent?.let { Files.createDirectories(it) }
         Files.writeString(out, sb.toString())
         logger.warn("wrote C++ native: $out")
+    }
+
+    /** Emit the Rust side from the IR (mirror of [writeCppNative]); custom thunks via plugins. */
+    private fun writeRustNative(path: String, names: List<String>, holders: List<String>, all: List<Method>, core: String) {
+        val jni = all.filter { it.jni != null }
+        val cabi = all.filter { it.cabi != null }
+        val holder = holders[names.indexOf("Rust")]
+
+        fun jniType(k: Kind) = when (k) {
+            Kind.PTR, Kind.LONG -> "jlong"; Kind.INT -> "jint"; Kind.BYTE -> "jbyte"
+            else -> error("rust jni type $k")
+        }
+        fun callArg(k: Kind, v: String) = when (k) {
+            Kind.PTR -> "$v as *mut c_void"; Kind.LONG -> "$v as usize"; Kind.INT -> "$v as i32"; Kind.BYTE -> "$v as u8"
+            else -> error("rust arg $k")
+        }
+
+        fun lifecycle(m: Method): String {
+            val s = m.cabi!!.value
+            return when (m.core!!) {
+                dev.sweety.nativeapi.Core.Op.NEW ->
+                    "#[no_mangle] pub extern \"C\" fn $s() -> *mut c_void { Box::into_raw(Box::new($core::new())) as *mut c_void }"
+                dev.sweety.nativeapi.Core.Op.FREE ->
+                    "#[no_mangle] pub unsafe extern \"C\" fn $s(h: *mut c_void) { if !h.is_null() { drop(Box::from_raw(h as *mut $core)); } }"
+                dev.sweety.nativeapi.Core.Op.UPDATE ->
+                    "#[no_mangle] pub unsafe extern \"C\" fn $s(h: *mut c_void, data: *mut c_void, len: usize) { let fnv = &mut *(h as *mut $core); if !data.is_null() && len != 0 { fnv.update(std::slice::from_raw_parts(data as *const u8, len)); } }"
+                dev.sweety.nativeapi.Core.Op.DIGEST ->
+                    "#[no_mangle] pub unsafe extern \"C\" fn $s(h: *mut c_void) -> u64 { (*(h as *const $core)).digest() }"
+                dev.sweety.nativeapi.Core.Op.RESET ->
+                    "#[no_mangle] pub unsafe extern \"C\" fn $s(h: *mut c_void) { (*(h as *mut $core)).reset(); }"
+                dev.sweety.nativeapi.Core.Op.HASH ->
+                    "#[no_mangle] pub unsafe extern \"C\" fn $s(data: *mut c_void, len: usize) -> u64 { if data.is_null() || len == 0 { $core::hash(&[]) } else { $core::hash(std::slice::from_raw_parts(data as *const u8, len)) } }"
+            }
+        }
+
+        fun plainThunk(m: Method): String {
+            val sigParams = m.params.mapIndexed { i, k -> ", p$i: ${jniType(k)}" }.joinToString("")
+            val args = m.params.mapIndexed { i, k -> callArg(k, "p$i") }.joinToString(", ")
+            val (arrow, wl, wr) = when (m.ret) {
+                Kind.VOID -> Triple("", "", "")
+                else -> Triple(" -> jlong", "", " as jlong")
+            }
+            return "unsafe extern \"system\" fn ${m.jni!!.thunk}(_e: JNIEnv, _c: JClass$sigParams)$arrow { $wl${targetOf(m)}($args)$wr }"
+        }
+
+        fun thunk(m: Method): String = if (m.customId == null) plainThunk(m)
+        else (nativeShapes.firstOrNull { it.handles(m.customId!!, "rust") }
+            ?: error("no NativeShape for id '${m.customId}' (rust)")).emitThunk(m, "rust")
+
+        val sb = StringBuilder()
+        sb.appendLine("// Generated from @NativeApi by NativeApiProcessor. Do not edit.")
+        sb.appendLine("use jni::objects::{JByteArray, JClass, JLongArray, ReleaseMode};")
+        sb.appendLine("use jni::sys::{jbyte, jint, jlong, JNI_VERSION_24};")
+        sb.appendLine("use jni::{JNIEnv, JavaVM, NativeMethod};")
+        sb.appendLine("use std::os::raw::c_void;")
+        sb.appendLine("use crate::fnv::$core;")
+        sb.appendLine("use crate::cabi::*;")
+        sb.appendLine()
+        cabi.filter { it.core != null }.forEach { sb.appendLine(lifecycle(it)) }
+        sb.appendLine()
+        jni.forEach { sb.appendLine(thunk(it)) }
+        sb.appendLine()
+        sb.appendLine("const HOLDER_CLASS: &str = \"$holder\";")
+        sb.appendLine("fn registrations() -> [NativeMethod; ${jni.size}] {")
+        sb.appendLine("    [")
+        jni.forEach { sb.appendLine("        NativeMethod { name: \"${it.name}\".into(), sig: \"${it.jniSig()}\".into(), fn_ptr: ${it.jni!!.thunk} as *mut c_void },") }
+        sb.appendLine("    ]")
+        sb.appendLine("}")
+        sb.appendLine()
+        sb.appendLine("#[no_mangle]")
+        sb.appendLine("pub extern \"system\" fn JNI_OnLoad(vm: JavaVM, _r: *mut c_void) -> jint {")
+        sb.appendLine("    let mut env = match vm.get_env() { Ok(e) => e, Err(_) => return -1 };")
+        sb.appendLine("    let cls = match env.find_class(HOLDER_CLASS) { Ok(c) => c, Err(_) => return -1 };")
+        sb.appendLine("    if env.register_native_methods(&cls, &registrations()).is_err() { return -1; }")
+        sb.appendLine("    JNI_VERSION_24 as jint")
+        sb.appendLine("}")
+
+        val out = Path.of(path)
+        out.parent?.let { Files.createDirectories(it) }
+        Files.writeString(out, sb.toString())
+        logger.warn("wrote Rust native: $out")
     }
 
     private fun writeBindings(pkg: String, common: List<Method>) = write(
