@@ -12,7 +12,7 @@ JNI thunks — from one annotated interface. You write the spec + the native alg
 
 ## 1. Make the framework available
 
-The framework artifacts are `dev.sweety.nativegen:{annotations,nativegen-runtime,nativegen-spi,processor,fnv-plugin}:0.1.3`
+The framework artifacts are `dev.sweety.nativegen:{annotations,nativegen-runtime,nativegen-spi,processor,fnv-plugin}:0.1.4`
 and the Gradle plugin `dev.sweety.nativegen`.
 
 **Local (recommended for now):** from this repo, publish to your local Maven repo:
@@ -55,12 +55,12 @@ Then in `build.gradle.kts` use the tag as the plugin version, and point the fram
 the JitPack group via `gradle.properties` (JitPack rewrites the group, so this is required):
 
 ```kotlin
-plugins { id("dev.sweety.nativegen") version "v0.1.3" }
+plugins { id("dev.sweety.nativegen") version "v0.1.4" }
 ```
 ```properties
 # gradle.properties
 nativegen.group=com.github.Mucoloff.jni-ffm-api
-nativegen.version=v0.1.3
+nativegen.version=v0.1.4
 ```
 
 ## 2. Apply the plugin
@@ -78,7 +78,7 @@ plugins {
 application { mainClass.set("com.acme.Main") }
 
 // only if you use custom @Strategy marshalling:
-// dependencies { ksp("dev.sweety.nativegen:fnv-plugin:0.1.3") }
+// dependencies { ksp("dev.sweety.nativegen:fnv-plugin:0.1.4") }
 ```
 
 That's the whole build wiring — the plugins add the framework deps, run KSP, build the

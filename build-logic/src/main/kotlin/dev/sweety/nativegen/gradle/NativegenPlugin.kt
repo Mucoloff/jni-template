@@ -27,7 +27,7 @@ class NativegenPlugin : Plugin<Project> {
         // which KSP's onlyIf requires). Defaults = mavenLocal/Central; for JitPack set
         // nativegen.group=com.github.Mucoloff.jni-ffm-api, nativegen.version=vX in gradle.properties.
         val fwGroup = (findProperty("nativegen.group") as String?) ?: "dev.sweety.nativegen"
-        val fwVersion = (findProperty("nativegen.version") as String?) ?: "0.1.3"
+        val fwVersion = (findProperty("nativegen.version") as String?) ?: "0.1.4"
         dependencies.add("implementation", "$fwGroup:annotations:$fwVersion")
         dependencies.add("implementation", "$fwGroup:nativegen-runtime:$fwVersion")
         dependencies.add("ksp", "$fwGroup:processor:$fwVersion")
