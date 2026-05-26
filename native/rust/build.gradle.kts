@@ -12,7 +12,7 @@ val descriptor = rootProject.layout.buildDirectory.file("generated/native-api.js
 
 tasks.register<Exec>("buildRust") {
     description = "Build the Rust native library"
-    dependsOn(":compileJava")            // produces the native-api.json descriptor
+    dependsOn(":kspKotlin")              // produces the native-api.json descriptor
     workingDir = projectDir
     commandLine(cargoPath, "build", "--release")
     // build.rs turns the descriptor into the RegisterNatives array.

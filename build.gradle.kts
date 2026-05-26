@@ -2,6 +2,7 @@ plugins {
     id("java")
     application
     kotlin("jvm") version "2.3.20"
+    id("com.google.devtools.ksp") version "2.3.8"
     id("me.champeau.jmh") version "0.7.2"
 }
 
@@ -25,7 +26,7 @@ dependencies {
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains:annotations:26.0.2")
     implementation(project(":annotations"))
-    annotationProcessor(project(":processor"))
+    ksp(project(":processor"))
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -33,12 +34,12 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
-// Where the annotation processor writes the native API descriptor (consumed by
-// the C++ and Rust builds to generate their RegisterNatives tables).
+// Where the KSP processor writes the native API descriptor (consumed by the C++
+// and Rust builds to generate their RegisterNatives tables).
 val nativeDescriptor = layout.buildDirectory.file("generated/native-api.json").get().asFile
 
-tasks.named<JavaCompile>("compileJava") {
-    options.compilerArgs.add("-Anative.descriptor=${nativeDescriptor.absolutePath}")
+ksp {
+    arg("native.descriptor", nativeDescriptor.absolutePath)
 }
 
 application {

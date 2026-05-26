@@ -1,15 +1,12 @@
 plugins {
-    id("java-library")
+    kotlin("jvm") version "2.3.20"
 }
 
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(25))
-    }
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+kotlin {
+    jvmToolchain(25)
 }
 
 dependencies {
     implementation(project(":annotations"))
+    implementation("com.google.devtools.ksp:symbol-processing-api:2.3.8")
 }

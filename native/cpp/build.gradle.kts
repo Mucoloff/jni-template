@@ -14,7 +14,7 @@ val genHeader = file("$projectDir/generated/registrations.generated.h")
 // JNINativeMethod table, so the registration is never hand-written here.
 tasks.register("genCppRegistrations") {
     description = "Generate the C++ RegisterNatives table from native-api.json"
-    dependsOn(":compileJava")
+    dependsOn(":kspKotlin")
     inputs.file(descriptor)
     outputs.file(genHeader)
     doLast {
