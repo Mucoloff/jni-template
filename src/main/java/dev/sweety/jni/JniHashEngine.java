@@ -28,7 +28,7 @@ public final class JniHashEngine extends JniHashEngineBase {
     }
 
     @Override
-    public long @NotNull [] hashBatch(@NotNull MemorySegment[] data, long @NotNull [] lens) {
+    public long @NotNull [] hashBatch(@NotNull MemorySegment @NotNull [] data, long @NotNull [] lens) {
         long[] addrs = new long[data.length];
         for (int i = 0; i < data.length; i++) addrs[i] = data[i].address();
         return bindings.hashBatch(addrs, lens);
