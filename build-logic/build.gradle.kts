@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.sweety.nativegen"
-version = "0.1.0"
+version = "0.1.1"
 
 repositories {
     gradlePluginPortal()

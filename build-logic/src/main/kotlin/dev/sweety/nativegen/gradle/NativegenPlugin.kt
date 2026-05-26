@@ -27,12 +27,6 @@ class NativegenPlugin : Plugin<Project> {
         repositories.mavenCentral()
         repositories.maven { setUrl("https://jitpack.io") }
 
-        // In-repo, these coordinates resolve to the sibling projects (same group:name:version);
-        // for an external consumer they resolve from mavenLocal / JitPack.
-        dependencies.add("implementation", "$GROUP:annotations:$VERSION")
-        dependencies.add("implementation", "$GROUP:nativegen-runtime:$VERSION")
-        dependencies.add("ksp", "$GROUP:processor:$VERSION")
-
         val cppDir = file("native/cpp")
         val cppBuildDir = file("native/cpp/cmake-build")
         val cppGen = file("native/cpp/generated/native.generated.cpp")
@@ -45,6 +39,12 @@ class NativegenPlugin : Plugin<Project> {
             .firstOrNull { File(it).exists() } ?: "cargo"
 
         afterEvaluate {
+            // In-repo these resolve to the sibling projects (matching group:name:version);
+            // externally they come from mavenLocal / JitPack (set nativegen.group/version).
+            dependencies.add("implementation", "${ext.group}:annotations:${ext.version}")
+            dependencies.add("implementation", "${ext.group}:nativegen-runtime:${ext.version}")
+            dependencies.add("ksp", "${ext.group}:processor:${ext.version}")
+
             val ksp = extensions.getByType(KspExtension::class.java)
             ksp.arg("native.descriptor", descriptor.absolutePath)
             if (ext.cpp) ksp.arg("native.cpp.out", cppGen.absolutePath)
@@ -115,10 +115,5 @@ class NativegenPlugin : Plugin<Project> {
                 jvmArgs(libPath, nativeAccess)
             }
         }
-    }
-
-    companion object {
-        private const val GROUP = "dev.sweety.nativegen"
-        private const val VERSION = "0.1.0"
     }
 }
