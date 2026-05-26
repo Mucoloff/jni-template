@@ -1,6 +1,7 @@
 package dev.sweety.example.buffer;
 
 import dev.sweety.Backend;
+import dev.sweety.Binding;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -13,7 +14,7 @@ public class Main {
     public static void main(String[] args) {
         for (Backend b : Backend.values()) {
             try {
-                FfmBindings ffm = new FfmBindings(b);
+                Bindings ffm = Bindings.of(Binding.FFM, b);
                 try (Arena a = Arena.ofConfined()) {
                     MemorySegment buf = a.allocate(8);
                     ffm.fill(buf, 8, (byte) 3);
@@ -21,7 +22,7 @@ public class Main {
                     ffm.copy(dst, buf, 8);
                     System.out.printf("FFM %-4s sum(fill 3x8)=%d sum(copy)=%d%n", b, ffm.sum(buf, 8), ffm.sum(dst, 8));
                 }
-                JniBindings jni = JniBindings.of(b);
+                Bindings jni = Bindings.of(Binding.JNI, b);
                 try (Arena a = Arena.ofConfined()) {
                     MemorySegment buf = a.allocate(4);
                     jni.fill(buf, 4, (byte) 5);
