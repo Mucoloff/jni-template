@@ -1,7 +1,5 @@
 package dev.sweety
 
-import dev.sweety.ffm.FfmHashEngine
-import dev.sweety.jni.JniHashEngine
 import dev.sweety.pool.Acquire
 import java.lang.foreign.MemorySegment
 
@@ -38,12 +36,7 @@ interface HashEngine {
 
     companion object {
         @JvmStatic
-        fun of(binding: Binding, backend: Backend): HashEngine {
-            return when (binding) {
-                Binding.JNI -> JniHashEngine(backend)
-                Binding.FFM -> FfmHashEngine(backend)
-            }
-        }
+        fun of(binding: Binding, backend: Backend): HashEngine = EngineFactory.of(binding, backend)
 
         /** Default binding (FFM) on the given backend. */
         @JvmStatic

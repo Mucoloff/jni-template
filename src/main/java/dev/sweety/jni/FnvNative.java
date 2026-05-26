@@ -1,9 +1,13 @@
 package dev.sweety.jni;
 
 import dev.sweety.nativeapi.Cabi;
+import dev.sweety.nativeapi.Engine;
 import dev.sweety.nativeapi.Jni;
+import dev.sweety.nativeapi.Marshal;
 import dev.sweety.nativeapi.NativeApi;
 import dev.sweety.nativeapi.Ptr;
+
+import static dev.sweety.nativeapi.Marshal.Strategy.*;
 
 import java.lang.foreign.MemorySegment;
 
@@ -24,6 +28,7 @@ import java.lang.foreign.MemorySegment;
  * function symbol (identical in C++ and Rust) implementing the JNI side.
  */
 @NativeApi
+@Engine(iface = "dev.sweety.HashEngine", session = "dev.sweety.HashSession")
 interface FnvNative {
 
     // --- JNI-only: heap byte[] (copy vs critical) --------------------------------
@@ -36,31 +41,38 @@ interface FnvNative {
 
     // --- dual binding (JNI + FFM) ------------------------------------------------
 
+    @Marshal(DIRECT)
     @Jni(thunk = "jni_hash")
     @Cabi("nat_fnv_hash")
     long hash(@Ptr MemorySegment data, long len);
 
+    @Marshal(DIRECT)
     @Jni(thunk = "jni_transform")
     @Cabi("nat_transform")
     void transform(@Ptr MemorySegment data, long len, byte add);
 
+    @Marshal(SESSION_CREATE)
     @Jni(thunk = "jni_create")
     @Cabi("nat_fnv_new")
     @Ptr
     MemorySegment create();
 
+    @Marshal(SESSION_FREE)
     @Jni(thunk = "jni_free")
     @Cabi("nat_fnv_free")
     void free(@Ptr MemorySegment state);
 
+    @Marshal(SESSION_UPDATE)
     @Jni(thunk = "jni_update")
     @Cabi("nat_fnv_update")
     void update(@Ptr MemorySegment state, @Ptr MemorySegment data, long len);
 
+    @Marshal(SESSION_DIGEST)
     @Jni(thunk = "jni_digest")
     @Cabi("nat_fnv_digest")
     long digest(@Ptr MemorySegment state);
 
+    @Marshal(SESSION_RESET)
     @Jni(thunk = "jni_reset")
     @Cabi("nat_fnv_reset")
     void reset(@Ptr MemorySegment state);
