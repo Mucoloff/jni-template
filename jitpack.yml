@@ -6,3 +6,4 @@ jdk:
   - openjdk17
 install:
   - ./gradlew publishToMavenLocal --no-parallel -x test
+  - ./gradlew -p build-logic publishToMavenLocal --no-parallel
