@@ -224,14 +224,19 @@ class NativeApiProcessor(
         val cabi = all.filter { it.cabi != null }
         val holder = holders[names.indexOf("Cpp")]
 
-        fun cParam(k: Kind) = when (k) { Kind.PTR -> "void*"; Kind.LONG -> "size_t"; Kind.BYTE -> "uint8_t"; else -> error("cParam $k") }
-        fun cRet(k: Kind) = when (k) { Kind.VOID -> "void"; Kind.PTR -> "void*"; Kind.LONG -> "uint64_t"; else -> error("cRet $k") }
+        fun cParam(k: Kind) = when (k) {
+            Kind.PTR -> "void*"; Kind.LONG -> "size_t"; Kind.INT -> "int32_t"; Kind.BYTE -> "uint8_t"; else -> error("cParam $k")
+        }
+        fun cRet(k: Kind) = when (k) {
+            Kind.VOID -> "void"; Kind.PTR -> "void*"; Kind.LONG -> "uint64_t"; Kind.INT -> "int32_t"; Kind.BYTE -> "uint8_t"; else -> error("cRet $k")
+        }
         fun jniType(k: Kind) = when (k) {
             Kind.PTR, Kind.LONG -> "jlong"; Kind.INT -> "jint"; Kind.BYTE -> "jbyte"
             Kind.BYTE_ARRAY -> "jbyteArray"; Kind.LONG_ARRAY -> "jlongArray"; Kind.VOID -> "void"
         }
         fun callArg(k: Kind, v: String) = when (k) {
-            Kind.PTR -> "reinterpret_cast<void*>($v)"; Kind.LONG -> "static_cast<size_t>($v)"; Kind.BYTE -> "static_cast<uint8_t>($v)"
+            Kind.PTR -> "reinterpret_cast<void*>($v)"; Kind.LONG -> "static_cast<size_t>($v)"
+            Kind.INT -> "static_cast<int32_t>($v)"; Kind.BYTE -> "static_cast<uint8_t>($v)"
             else -> error("callArg $k")
         }
         fun sig(symbol: String, ret: Kind, params: List<Kind>, named: Boolean) =
@@ -245,7 +250,7 @@ class NativeApiProcessor(
             val stmt = when (m.ret) {
                 Kind.VOID -> "$call;"
                 Kind.PTR -> "return reinterpret_cast<jlong>($call);"
-                else -> "return static_cast<jlong>($call);"
+                else -> "return static_cast<${jniType(m.ret)}>($call);"
             }
             return "    $head $stmt }"
         }
@@ -272,7 +277,7 @@ class NativeApiProcessor(
         sb.appendLine("#include <jni.h>")
         sb.appendLine("#include <cstddef>")
         sb.appendLine("#include <cstdint>")
-        sb.appendLine("#include \"${core.lowercase()}.hpp\"")
+        if (cabi.any { it.core != null }) sb.appendLine("#include \"${core.lowercase()}.hpp\"")
         sb.appendLine()
         sb.appendLine("extern \"C\" {")
         cabi.forEach { sb.appendLine("${sig(it.cabi!!.value, it.ret, it.params, false)};") }
@@ -356,7 +361,7 @@ class NativeApiProcessor(
         sb.appendLine("use jni::sys::{jbyte, jint, jlong, JNI_VERSION_24};")
         sb.appendLine("use jni::{JNIEnv, JavaVM, NativeMethod};")
         sb.appendLine("use std::os::raw::c_void;")
-        sb.appendLine("use crate::fnv::$core;")
+        if (cabi.any { it.core != null }) sb.appendLine("use crate::fnv::$core;")
         sb.appendLine("use crate::cabi::*;")
         sb.appendLine()
         cabi.filter { it.core != null }.forEach { sb.appendLine(lifecycle(it)) }
