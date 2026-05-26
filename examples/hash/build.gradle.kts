@@ -28,11 +28,19 @@ dependencies {
 val nativeDescriptor = layout.buildDirectory.file("generated/native-api.json").get().asFile
 val nativeOutputDir = layout.buildDirectory.dir("natives").get().asFile
 
+val cppGen = project(":native:cpp").file("generated/native.generated.cpp")
+val rustGen = project(":native:rust").file("src/generated/native_generated.rs")
+
 ksp {
     arg("native.descriptor", nativeDescriptor.absolutePath)
-    // The processor also emits the C++ side here (the Rust side still comes from build.rs).
-    arg("native.cpp.out", project(":native:cpp").file("generated/native.generated.cpp").absolutePath)
-    arg("native.rust.out", project(":native:rust").file("src/generated/native_generated.rs").absolutePath)
+    arg("native.cpp.out", cppGen.absolutePath)
+    arg("native.rust.out", rustGen.absolutePath)
+}
+
+// kspKotlin writes the native sources + descriptor outside its tracked outputs; re-run it
+// if any went missing instead of reporting a false UP-TO-DATE.
+tasks.matching { it.name == "kspKotlin" }.configureEach {
+    outputs.upToDateWhen { nativeDescriptor.exists() && cppGen.exists() && rustGen.exists() }
 }
 
 application {

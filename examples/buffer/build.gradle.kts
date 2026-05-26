@@ -23,9 +23,18 @@ val cmakePath = (project.findProperty("cmake") as String?) ?: System.getenv("CMA
 val cargoPath = listOf("/usr/local/bin/cargo", "${System.getenv("HOME")}/.cargo/bin/cargo")
     .firstOrNull { File(it).exists() } ?: "cargo"
 
+val cppGen = file("native/cpp/generated/buffer.generated.cpp")
+val rustGen = file("native/rust/src/generated/native_generated.rs")
+
 ksp {
-    arg("native.cpp.out", file("native/cpp/generated/buffer.generated.cpp").absolutePath)
-    arg("native.rust.out", file("native/rust/src/generated/native_generated.rs").absolutePath)
+    arg("native.cpp.out", cppGen.absolutePath)
+    arg("native.rust.out", rustGen.absolutePath)
+}
+
+// kspKotlin writes the native sources outside its tracked outputs; re-run it if they
+// went missing (e.g. cleaned independently) instead of reporting a false UP-TO-DATE.
+tasks.matching { it.name == "kspKotlin" }.configureEach {
+    outputs.upToDateWhen { cppGen.exists() && rustGen.exists() }
 }
 
 application {
