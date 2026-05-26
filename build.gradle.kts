@@ -26,6 +26,7 @@ dependencies {
     implementation(kotlin("stdlib"))
     implementation("org.jetbrains:annotations:26.0.2")
     implementation(project(":annotations"))
+    implementation(project(":nativegen-runtime"))
     ksp(project(":processor"))
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))

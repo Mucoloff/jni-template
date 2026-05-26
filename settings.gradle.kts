@@ -4,5 +4,5 @@ plugins {
 
 rootProject.name = "jni-template"
 
-include("annotations", "processor")
+include("annotations", "processor", "nativegen-runtime")
 include("native:cpp", "native:rust")
