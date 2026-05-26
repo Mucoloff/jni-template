@@ -346,7 +346,7 @@ class NativeApiProcessor(
             val args = m.params.mapIndexed { i, k -> callArg(k, "p$i") }.joinToString(", ")
             val (arrow, wl, wr) = when (m.ret) {
                 Kind.VOID -> Triple("", "", "")
-                else -> Triple(" -> jlong", "", " as jlong")
+                else -> Triple(" -> ${jniType(m.ret)}", "", " as ${jniType(m.ret)}")
             }
             return "unsafe extern \"system\" fn ${m.jni!!.thunk}(_e: JNIEnv, _c: JClass$sigParams)$arrow { $wl${targetOf(m)}($args)$wr }"
         }

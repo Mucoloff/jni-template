@@ -58,3 +58,5 @@ native/rust/target/
 native/rust/src/generated/
 examples/*/native/cpp/generated/
 examples/*/native/cpp/cmake-build/
+examples/*/native/rust/target/
+examples/*/native/rust/src/generated/
