@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.sweety.nativegen"
-version = "0.1.2"
+version = "0.1.3"
 
 repositories {
     gradlePluginPortal()
@@ -22,6 +22,14 @@ gradlePlugin {
         create("nativegen") {
             id = "dev.sweety.nativegen"
             implementationClass = "dev.sweety.nativegen.gradle.NativegenPlugin"
+        }
+        create("nativegenCpp") {
+            id = "dev.sweety.nativegen.cpp"
+            implementationClass = "dev.sweety.nativegen.gradle.NativegenCppPlugin"
+        }
+        create("nativegenRust") {
+            id = "dev.sweety.nativegen.rust"
+            implementationClass = "dev.sweety.nativegen.gradle.NativegenRustPlugin"
         }
     }
 }
