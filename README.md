@@ -78,7 +78,8 @@ does this for `"heap"` (byte[] convenience) and `"batch"`.
 4. Optionally add `@Engine` for an ergonomic API, and `@Strategy` + a plugin for custom shapes.
 
 `:examples:mathops` and `:examples:buffer` are minimal specs that generate JNI+FFM bindings
-with **zero** processor changes — copy one as a starting point.
+with **zero** processor changes, each with a per-example CMake native build so they run
+end-to-end — copy one as a starting point.
 
 ## Build & run
 
@@ -104,5 +105,6 @@ is skipped if cargo is absent).
   PLAIN thunks + lifecycle + registration are built in; custom thunk shapes plug in via the
   `NativeShape` SPI (the native counterpart of `MarshalStrategy`). The native build scripts
   just compile the generated sources (no `genCppNative`/`build.rs` codegen).
-- `mathops`/`buffer` demonstrate binding generation + compilation; running them would need
-  their own native libs (per-example native build is future work).
+- `mathops`/`buffer` run end-to-end (`./gradlew :examples:mathops:run`, `:examples:buffer:run`)
+  via per-example native builds: each has its own CMake lib (hand-written C-ABI core +
+  processor-generated thunks) and exercises both the generated FFM and JNI bindings.
