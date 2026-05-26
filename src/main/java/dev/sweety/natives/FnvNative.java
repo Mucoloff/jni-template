@@ -1,12 +1,14 @@
 package dev.sweety.natives;
 
 import dev.sweety.nativeapi.Cabi;
+import dev.sweety.nativeapi.Core;
 import dev.sweety.nativeapi.Engine;
 import dev.sweety.nativeapi.Jni;
 import dev.sweety.nativeapi.Marshal;
 import dev.sweety.nativeapi.NativeApi;
 import dev.sweety.nativeapi.Ptr;
 
+import static dev.sweety.nativeapi.Core.Op.*;
 import static dev.sweety.nativeapi.Marshal.Strategy.*;
 
 import java.lang.foreign.MemorySegment;
@@ -50,6 +52,7 @@ interface FnvNative {
     @Marshal(DIRECT)
     @Jni(thunk = "jni_hash")
     @Cabi("nat_fnv_hash")
+    @Core(HASH)
     long hash(@Ptr MemorySegment data, long len);
 
     @Marshal(DIRECT)
@@ -60,27 +63,32 @@ interface FnvNative {
     @Marshal(SESSION_CREATE)
     @Jni(thunk = "jni_create")
     @Cabi("nat_fnv_new")
+    @Core(NEW)
     @Ptr
     MemorySegment create();
 
     @Marshal(SESSION_FREE)
     @Jni(thunk = "jni_free")
     @Cabi("nat_fnv_free")
+    @Core(FREE)
     void free(@Ptr MemorySegment state);
 
     @Marshal(SESSION_UPDATE)
     @Jni(thunk = "jni_update")
     @Cabi("nat_fnv_update")
+    @Core(UPDATE)
     void update(@Ptr MemorySegment state, @Ptr MemorySegment data, long len);
 
     @Marshal(SESSION_DIGEST)
     @Jni(thunk = "jni_digest")
     @Cabi("nat_fnv_digest")
+    @Core(DIGEST)
     long digest(@Ptr MemorySegment state);
 
     @Marshal(SESSION_RESET)
     @Jni(thunk = "jni_reset")
     @Cabi("nat_fnv_reset")
+    @Core(RESET)
     void reset(@Ptr MemorySegment state);
 
     // --- batch: JNI takes arrays; FFM takes the raw C-ABI pointer form ------------

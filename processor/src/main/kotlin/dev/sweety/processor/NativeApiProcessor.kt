@@ -15,6 +15,7 @@ import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSFunctionDeclaration
 import com.google.devtools.ksp.symbol.KSTypeReference
 import dev.sweety.nativeapi.Cabi
+import dev.sweety.nativeapi.Core
 import dev.sweety.nativeapi.Engine
 import dev.sweety.nativeapi.Jni
 import dev.sweety.nativeapi.Marshal
@@ -77,7 +78,7 @@ class NativeApiProcessor(
         names.forEachIndexed { i, n -> writeHolder(pkg, "${n}Natives", enums[i], jni) }
         writeJniBindings(pkg, names, enums, jni, engine != null)
         writeFfmBindings(pkg, ffm, engine != null)
-        writeDescriptor(names, holders, jni)
+        writeDescriptor(names, holders, methods, api.coreType)
 
         if (engine != null) {
             val common = methods.filter {
@@ -154,19 +155,46 @@ class NativeApiProcessor(
             })
     )
 
-    private fun writeDescriptor(names: List<String>, holders: List<String>, jni: List<Method>) {
+    private fun writeDescriptor(names: List<String>, holders: List<String>, all: List<Method>, coreType: String) {
         val path = options["native.descriptor"]
         if (path == null) {
             logger.warn("native.descriptor option not set; skipping JSON descriptor")
             return
         }
+        val jni = all.filter { it.jni != null }
         val backends = names.indices.joinToString(",\n") {
             "    {\"name\": \"${names[it]}\", \"holder\": \"${holders[it]}\"}"
         }
-        val methods = join(jni, ",\n") {
-            "    {\"name\": \"${it.name}\", \"sig\": \"${it.jniSig()}\", \"thunk\": \"${it.jni!!.thunk}\", \"critical\": ${it.jni.critical}}"
+        // Each JNI thunk delegates to a flat C-ABI symbol; resolve it from the spec.
+        fun target(m: Method): String = m.cabi?.value ?: when (m.strategy) {
+            Marshal.Strategy.HEAP_HASH ->
+                all.first { it.core == Core.Op.HASH }.cabi!!.value
+            Marshal.Strategy.BATCH ->
+                all.first { it.strategy == Marshal.Strategy.BATCH && it.cabi != null }.cabi!!.value
+            else -> error("no C-ABI target for thunk ${m.name}")
         }
-        val json = DESCRIPTOR.replace("%backends%", backends).replace("%methods%", methods)
+        fun shape(m: Method) = when (m.strategy) {
+            Marshal.Strategy.HEAP_HASH -> "heap"
+            Marshal.Strategy.BATCH -> "batch"
+            else -> "plain"
+        }
+        fun kinds(m: Method) = m.params.joinToString(", ") { "\"${it.kindName()}\"" }
+        val methods = join(jni, ",\n") {
+            "    {\"name\": \"${it.name}\", \"sig\": \"${it.jniSig()}\", \"thunk\": \"${it.jni!!.thunk}\"" +
+                ", \"critical\": ${it.jni.critical}, \"shape\": \"${shape(it)}\"" +
+                ", \"ret\": \"${it.ret.kindName()}\", \"params\": [${kinds(it)}], \"target\": \"${target(it)}\"}"
+        }
+        // Every flat C-ABI symbol: op != null → body generated; op null → hand-written (just declared).
+        val cabi = all.filter { it.cabi != null }.joinToString(",\n") {
+            val op = if (it.core != null) "\"${it.core.name}\"" else "null"
+            "    {\"symbol\": \"${it.cabi!!.value}\", \"op\": $op" +
+                ", \"ret\": \"${it.ret.kindName()}\", \"params\": [${kinds(it)}]}"
+        }
+        val json = DESCRIPTOR
+            .replace("%coreType%", coreType)
+            .replace("%backends%", backends)
+            .replace("%methods%", methods)
+            .replace("%cabi%", cabi)
         val out = Path.of(path)
         out.parent?.let { Files.createDirectories(it) }
         Files.writeString(out, json)
@@ -364,7 +392,8 @@ class NativeApiProcessor(
             )
             if (ret.isArray) logger.error("@Cabi method cannot return an array: $name", fn)
         }
-        return Method(name, ret, params, jni, cabi, marshal?.value, engineName, ifaceMethod)
+        val core = fn.getAnnotationsByType(Core::class).firstOrNull()?.value
+        return Method(name, ret, params, jni, cabi, marshal?.value, engineName, ifaceMethod, core)
     }
 
     private fun classify(where: KSAnnotated, type: KSTypeReference?, ptr: Boolean): Kind {
@@ -419,6 +448,12 @@ class NativeApiProcessor(
             PTR -> "ADDRESS"; LONG -> "JAVA_LONG"; INT -> "JAVA_INT"; BYTE -> "JAVA_BYTE"
             else -> error("no layout for $this")
         }
+
+        /** Lowercased name for the native-api.json (consumed by the C++/Rust renderers). */
+        fun kindName() = when (this) {
+            VOID -> "void"; PTR -> "ptr"; LONG -> "long"; INT -> "int"; BYTE -> "byte"
+            BYTE_ARRAY -> "byteArray"; LONG_ARRAY -> "longArray"
+        }
     }
 
     private class Method(
@@ -430,6 +465,7 @@ class NativeApiProcessor(
         val strategy: Marshal.Strategy?,
         val engineName: String,
         val ifaceMethod: Boolean,
+        val core: Core.Op?,
     ) {
         fun loweredReturn() = ret.loweredJava()
         fun segmentReturn() = ret.segmentJava()
@@ -556,11 +592,15 @@ class NativeApiProcessor(
 
         private val DESCRIPTOR = """
             {
+              "coreType": "%coreType%",
               "backends": [
             %backends%
               ],
               "methods": [
             %methods%
+              ],
+              "cabi": [
+            %cabi%
               ]
             }
             """.trimIndent() + "\n"

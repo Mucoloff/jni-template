@@ -18,4 +18,7 @@ public @interface NativeApi {
     /** dev.sweety.Backend enum constants. */
     String[] backendEnums() default {"CPP", "RUST"};
     /** Holder class name prefixes, e.g. {"Cpp","Rust"} -> CppNatives, RustNatives. */
+
+    /** Native core type the generated C-ABI {@link Core} bodies delegate to (C++ struct / Rust struct). */
+    String coreType() default "Fnv";
 }

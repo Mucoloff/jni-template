@@ -14,13 +14,12 @@ add_compile_options(-O3)
 find_package(JNI REQUIRED)
 
 add_library(native_cpp SHARED
-    src/cabi.cpp
-    src/jni_hashengine.cpp
+    src/cabi.cpp                      # hand-written: FNV core glue (transform, batch)
+    generated/native.generated.cpp   # generated: C-ABI lifecycle + jni_* thunks + JNI_OnLoad
 )
 
 target_include_directories(native_cpp PRIVATE
     include
-    generated            # registrations.generated.h (from native-api.json)
     ${JNI_INCLUDE_DIRS}
 )
 
