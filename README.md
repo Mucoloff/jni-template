@@ -78,8 +78,8 @@ does this for `"heap"` (byte[] convenience) and `"batch"`.
 4. Optionally add `@Engine` for an ergonomic API, and `@Strategy` + a plugin for custom shapes.
 
 `:examples:mathops` and `:examples:buffer` are minimal specs that generate JNI+FFM bindings
-with **zero** processor changes, each with a per-example CMake native build so they run
-end-to-end — copy one as a starting point.
+with **zero** processor changes, each with a per-example C++ (CMake) and Rust (Cargo) native
+build so they run end-to-end on both backends — copy one as a starting point.
 
 ## Build & run
 
@@ -105,6 +105,19 @@ is skipped if cargo is absent).
   PLAIN thunks + lifecycle + registration are built in; custom thunk shapes plug in via the
   `NativeShape` SPI (the native counterpart of `MarshalStrategy`). The native build scripts
   just compile the generated sources (no `genCppNative`/`build.rs` codegen).
-- `mathops`/`buffer` run end-to-end (`./gradlew :examples:mathops:run`, `:examples:buffer:run`)
-  via per-example native builds: each has its own CMake lib (hand-written C-ABI core +
-  processor-generated thunks) and exercises both the generated FFM and JNI bindings.
+- `mathops`/`buffer` run end-to-end across **all four combos** (FFM/JNI × C++/Rust) via
+  per-example native builds: each has its own CMake (C++) **and** Cargo (Rust) lib —
+  hand-written C-ABI core + processor-generated thunks — exercising the generated FFM and
+  JNI bindings on both backends:
+  ```
+  $ ./gradlew :examples:mathops:run
+  FFM CPP  add(2,3)=5 imul(4,5)=20 neg(7)=-7
+  JNI CPP  add(2,3)=5 imul(4,5)=20 neg(7)=-7
+  FFM RUST add(2,3)=5 imul(4,5)=20 neg(7)=-7
+  JNI RUST add(2,3)=5 imul(4,5)=20 neg(7)=-7
+  $ ./gradlew :examples:buffer:run
+  FFM CPP  sum(fill 3x8)=24 sum(copy)=24
+  JNI CPP  sum(fill 5x4)=20
+  FFM RUST sum(fill 3x8)=24 sum(copy)=24
+  JNI RUST sum(fill 5x4)=20
+  ```
