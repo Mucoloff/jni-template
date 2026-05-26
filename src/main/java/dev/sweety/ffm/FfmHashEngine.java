@@ -1,7 +1,9 @@
 package dev.sweety.ffm;
 
 import dev.sweety.Backend;
-import dev.sweety.jni.FfmHashEngineBase;
+import dev.sweety.Binding;
+import dev.sweety.jni.FfmBindings;
+import dev.sweety.jni.HashEngineBase;
 import dev.sweety.mem.NativeArena;
 import org.jetbrains.annotations.NotNull;
 
@@ -14,13 +16,13 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * {@link dev.sweety.HashEngine} over the Foreign Function & Memory API. The DIRECT
  * delegates, pooled streaming sessions, and {@code backend()/binding()} are generated
- * ({@link FfmHashEngineBase}); this class only adds what needs custom marshalling:
+ * ({@link HashEngineBase}); this class only adds what needs custom marshalling:
  * the {@code byte[]} convenience and batch segment marshalling.
  */
-public final class FfmHashEngine extends FfmHashEngineBase {
+public final class FfmHashEngine extends HashEngineBase<FfmBindings> {
 
     public FfmHashEngine(Backend backend) {
-        super(backend);
+        super(new FfmBindings(backend), backend, Binding.FFM);
     }
 
     @Override

@@ -1,20 +1,21 @@
 package dev.sweety.jni;
 
 import dev.sweety.Backend;
+import dev.sweety.Binding;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.foreign.MemorySegment;
 
 /**
  * {@link dev.sweety.HashEngine} over JNI. The DIRECT delegates, pooled streaming
- * sessions, and {@code backend()/binding()} are generated ({@link JniHashEngineBase});
+ * sessions, and {@code backend()/binding()} are generated ({@link HashEngineBase});
  * this class only adds what needs custom marshalling: the {@code byte[]} convenience
  * (copy + critical) and batch address extraction.
  */
-public final class JniHashEngine extends JniHashEngineBase {
+public final class JniHashEngine extends HashEngineBase<JniBindings> {
 
     public JniHashEngine(Backend backend) {
-        super(backend);
+        super(JniBindings.of(backend), backend, Binding.JNI);
     }
 
     @Override
