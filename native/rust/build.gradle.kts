@@ -1,6 +1,7 @@
 import org.gradle.internal.os.OperatingSystem
 val rustTarget = file("$projectDir/target/release")
-val nativeOutputDir = rootProject.file("build/natives")
+val hash = project(":examples:hash")
+val nativeOutputDir = hash.layout.buildDirectory.dir("natives").get().asFile
 
 val cargoPath: String = listOf(
     "/usr/local/bin/cargo",
@@ -8,11 +9,11 @@ val cargoPath: String = listOf(
 ).firstOrNull { File(it).exists() } ?: "cargo"
 val cargoAvailable = File(cargoPath).exists()
 
-val descriptor = rootProject.layout.buildDirectory.file("generated/native-api.json")
+val descriptor = hash.layout.buildDirectory.file("generated/native-api.json")
 
 tasks.register<Exec>("buildRust") {
     description = "Build the Rust native library"
-    dependsOn(":kspKotlin")              // produces the native-api.json descriptor
+    dependsOn(":examples:hash:kspKotlin")  // produces the native-api.json descriptor
     workingDir = projectDir
     commandLine(cargoPath, "build", "--release")
     // build.rs turns the descriptor into the RegisterNatives array.

@@ -1,5 +1,6 @@
 val cppBuildDir = file("$projectDir/cmake-build")
-val nativeOutputDir = rootProject.file("build/natives")
+val hash = project(":examples:hash")
+val nativeOutputDir = hash.layout.buildDirectory.dir("natives").get().asFile
 
 // Override with -Pcmake=/path/to/cmake or the CMAKE env var; otherwise use PATH.
 val cmakePath: String =
@@ -7,7 +8,7 @@ val cmakePath: String =
         ?: System.getenv("CMAKE")
         ?: "cmake"
 
-val descriptor = rootProject.layout.buildDirectory.file("generated/native-api.json")
+val descriptor = hash.layout.buildDirectory.file("generated/native-api.json")
 val genCpp = file("$projectDir/generated/native.generated.cpp")
 
 // Turn native-api.json into the whole JNI surface: the flat C-ABI lifecycle bodies,
@@ -16,7 +17,7 @@ val genCpp = file("$projectDir/generated/native.generated.cpp")
 // hand-written, in cabi.cpp.
 tasks.register("genCppNative") {
     description = "Generate the C++ JNI thunks + C-ABI lifecycle from native-api.json"
-    dependsOn(":kspKotlin")
+    dependsOn(":examples:hash:kspKotlin")
     inputs.file(descriptor)
     outputs.file(genCpp)
     doLast {
