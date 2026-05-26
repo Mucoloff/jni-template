@@ -25,9 +25,18 @@ public @interface Engine {
     /** Fully-qualified pooled session interface (e.g. dev.sweety.HashSession). */
     String session();
 
-    /** Suffix for the generated base class names: {@code Jni<suffix>} / {@code Ffm<suffix>}. */
+    /** Name of the generated generic base class. */
     String baseSuffix() default "HashEngineBase";
 
     /** Per-thread pool size for sessions. */
     int poolSize() default 16;
+
+    /**
+     * FQN of the fully-generated JNI engine class (HEAP_HASH + BATCH marshalling). Empty =
+     * do not generate the concrete impl (Phase 1: hand-written subclass).
+     */
+    String jniImpl() default "";
+
+    /** FQN of the fully-generated FFM engine class. Empty = do not generate. */
+    String ffmImpl() default "";
 }

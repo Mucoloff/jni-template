@@ -22,6 +22,15 @@ import java.lang.annotation.*;
 public @interface Marshal {
     Strategy value();
 
+    /**
+     * Name of the engine method this drives (for {@code HEAP_HASH}/{@code BATCH}, whose engine
+     * signature differs from the native one). Empty = the annotated method's own name.
+     */
+    String engine() default "";
+
+    /** Whether the generated engine method {@code @Override}s the public interface. */
+    boolean iface() default true;
+
     enum Strategy {
         /** Engine method delegates 1:1 to the binding wrapper (same signature). */
         DIRECT,

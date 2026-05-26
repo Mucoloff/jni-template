@@ -28,14 +28,20 @@ import java.lang.foreign.MemorySegment;
  * function symbol (identical in C++ and Rust) implementing the JNI side.
  */
 @NativeApi
-@Engine(iface = "dev.sweety.HashEngine", session = "dev.sweety.HashSession")
+@Engine(
+        iface = "dev.sweety.HashEngine",
+        session = "dev.sweety.HashSession",
+        jniImpl = "dev.sweety.jni.JniHashEngine",
+        ffmImpl = "dev.sweety.ffm.FfmHashEngine")
 interface FnvNative {
 
     // --- JNI-only: heap byte[] (copy vs critical) --------------------------------
 
+    @Marshal(value = HEAP_HASH, engine = "hash")
     @Jni(thunk = "jni_hash_array")
     long hashArray(byte[] data);
 
+    @Marshal(value = HEAP_HASH, engine = "hashCritical", iface = false)
     @Jni(thunk = "jni_hash_array_crit", critical = true)
     long hashArrayCritical(byte[] data);
 
@@ -79,9 +85,11 @@ interface FnvNative {
 
     // --- batch: JNI takes arrays; FFM takes the raw C-ABI pointer form ------------
 
+    @Marshal(value = BATCH, engine = "hashBatch")
     @Jni(thunk = "jni_hash_batch")
     long[] hashBatch(long[] addrs, long[] lens);
 
+    @Marshal(value = BATCH, engine = "hashBatch")
     @Cabi("nat_fnv_hash_batch")
     void hashBatchRaw(@Ptr MemorySegment ptrs, @Ptr MemorySegment lens, @Ptr MemorySegment out, long n);
 }
