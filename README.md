@@ -47,7 +47,7 @@ The KSP processor generates, from that alone:
 - **JVM**: `RawNatives` + per-backend holders (`CppNatives`/`RustNatives`), `JniBindings`
   (segment↔address glue), `FfmBindings` (cached downcall handles + `invokeExact`), and a
   JSON descriptor `build/generated/native-api.json`.
-- **Native** (consuming the descriptor): the `jni_*` thunks (which route through the
+- **Native** (emitted by the processor too): the `jni_*` thunks (which route through the
   C-ABI), the `RegisterNatives` table + `JNI_OnLoad`, and — for methods marked `@Core` — the
   flat C-ABI lifecycle bodies, in **both C++ and Rust**. Hand-written: the algorithm core
   and any loop C-ABI (e.g. `transform`, `batch`).
@@ -100,8 +100,9 @@ is skipped if cargo is absent).
 
 - The framework generates the **boundary** (JVM bindings + JNI thunks + registration +
   C-ABI lifecycle). It does **not** generate the native algorithm — that's yours.
-- Native code generation currently lives in the native build scripts (`:native:cpp`
-  `genCppNative`, `:native:rust` `build.rs`) driven by the descriptor; making it pluggable
-  via a `NativeEmitter` SPI (like `MarshalStrategy`) is the next step.
+- Both the JVM and the **native** (C++ *and* Rust) code are emitted by the KSP processor:
+  PLAIN thunks + lifecycle + registration are built in; custom thunk shapes plug in via the
+  `NativeShape` SPI (the native counterpart of `MarshalStrategy`). The native build scripts
+  just compile the generated sources (no `genCppNative`/`build.rs` codegen).
 - `mathops`/`buffer` demonstrate binding generation + compilation; running them would need
   their own native libs (per-example native build is future work).
